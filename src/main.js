@@ -4,7 +4,7 @@ import startKeyPress from './modes/keypress.js';
 import startPatternMemory from './modes/patternmemory.js';
 
 const STORAGE_USERS = 'rtr-users-v1';
-const DEFAULT_KEYBINDS = { A: 'KeyA', S: 'KeyS', D: 'KeyD', F: 'KeyF' };
+const DEFAULT_KEYBINDS = { A: 'A', S: 'S', D: 'D', F: 'F' };
 const DEFAULT_DIFFICULTY = 'noob';
 const difficultyPresets = {
   noob: { bpm: 30, perfect: 1.05, good: 1.12, leadTime: 1.8, patternStart: 4, patternBeats: 6, patternIncrease: false },
@@ -233,7 +233,6 @@ function updateDetailedStats() {
       accuracy: s.accuracy || 0,
       precision: s.bestPrecision || Infinity,
       combo: s.bestCombo || 0,
-      perfects: s.totalPerfects || 0,
       plays: s.plays || 0
     });
   }
@@ -250,9 +249,9 @@ function updateDetailedStats() {
       return valA - valB;
     }
   });
-  let html = '<table><tr><th>Difficulty</th><th>Plays</th><th>Accuracy</th><th>Best Precision</th><th>Best Combo</th><th>Total Perfects</th></tr>';
+  let html = '<table><tr><th>Difficulty</th><th>Plays</th><th>Accuracy</th><th>Best Precision</th><th>Best Combo</th></tr>';
   stats.forEach(s => {
-    html += `<tr><td>${s.difficulty}</td><td>${s.plays}</td><td>${s.accuracy}%</td><td>${s.precision === Infinity ? 'N/A' : s.precision + 'ms'}</td><td>${s.combo}</td><td>${s.perfects}</td></tr>`;
+    html += `<tr><td>${s.difficulty}</td><td>${s.plays}</td><td>${s.accuracy}%</td><td>${s.precision === Infinity ? 'N/A' : s.precision + 'ms'}</td><td>${s.combo}</td></tr>`;
   });
   html += '</table>';
   document.getElementById('stats-details').innerHTML = html;
@@ -454,7 +453,7 @@ loginCancelBtn.addEventListener('click', () => { toggleLoginModal(); });
 saveSettingsBtn.addEventListener('click', () => {
   Object.keys(bindInputs).forEach((label) => {
     const value = bindInputs[label].value.trim().toUpperCase();
-    currentKeybinds[label] = value.startsWith('KEY') ? value : `Key${value}`;
+    currentKeybinds[label] = value.startsWith() ? value : `${value}`;
   });
   saveUserData();
   showMessage('Keybinds saved.');
@@ -567,7 +566,8 @@ startBtn.addEventListener('click', async () => {
     case 'beat':
       gameInstance = startBeatClick(audioScheduler, canvas, {
         onUpdateHUD: updateHUD,
-        difficulty: difficulty
+        difficulty: difficulty,
+        onGameEnd: stopGame
       });
       break;
     case 'key':
@@ -575,8 +575,9 @@ startBtn.addEventListener('click', async () => {
         canvas,
         audioScheduler,
         onUpdateHUD: updateHUD,
-        difficulty,
-        keybinds: currentKeybinds
+        difficulty: { ...difficulty, level: difficultySelect.value },
+        keybinds: currentKeybinds,
+        onGameEnd: stopGame
       });
       break;
     case 'pattern':
@@ -584,7 +585,8 @@ startBtn.addEventListener('click', async () => {
         canvas,
         audioScheduler,
         onUpdateHUD: updateHUD,
-        difficulty
+        difficulty,
+        onGameEnd: stopGame
       });
       break;
   }

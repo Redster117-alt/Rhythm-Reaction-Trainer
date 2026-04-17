@@ -3,7 +3,7 @@
 
 import { getJudgement } from '../utils.js';
 
-export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, debug = false } = {}) {
+export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false } = {}) {
   const ctx = canvas.getContext('2d');
     let rafId = null;
       let pattern = []; // array of beat times for the pattern

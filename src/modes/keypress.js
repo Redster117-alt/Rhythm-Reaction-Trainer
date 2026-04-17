@@ -1,7 +1,7 @@
 // src/modes/keypress.js
 import { getJudgement } from '../utils.js';
 
-export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, keybinds = {}, pattern = null, debug = false } = {}) {
+export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onGameEnd, difficulty = {}, keybinds = {}, pattern = null, debug = false, keyboardOnly = true } = {}) {
   const ctx = canvas.getContext('2d');
   let rafId = null;
   let cues = []; // { beatTime, spawnTime, hit, label, code }
@@ -12,16 +12,45 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, dif
   let perfectCount = 0;
   let goodCount = 0;
   let totalOffset = 0;
+  let gameEnded = false;
 
   const leadTime = typeof difficulty.leadTime === 'number' ? difficulty.leadTime : 0.6;
   const beatCount = typeof difficulty.patternBeats === 'number' ? difficulty.patternBeats : 8;
-  const availableLabels = Object.keys(keybinds).length ? Object.keys(keybinds) : ['A', 'S', 'D', 'F'];
+  const difficultyLevel = difficulty.level || 'noob'; // 'noob', 'ez', 'veteran', 'experienced', 'expert', 'pro'
+  
+  // Map keybinds to labels (A -> KeyA, etc)
+  let availableLabels = Object.keys(keybinds).length ? Object.keys(keybinds) : ['A', 'S', 'D', 'F'];
+  
+  // Randomize order for medium/hard difficulties
+  if ((difficultyLevel === 'veteran' || difficultyLevel === 'experienced' || difficultyLevel === 'expert' || difficultyLevel === 'pro') && Math.random() > 0.5) {
+    availableLabels = availableLabels.slice().sort(() => Math.random() - 0.5);
+  }
 
   let keyHandler = null;
   let pointerHandler = null;
 
   function safeNow() {
     return audioScheduler && typeof audioScheduler.getCurrentTime === 'function' ? audioScheduler.getCurrentTime() : 0;
+  }
+
+  function getDisplayKey(code) {
+    // Convert key code to displayable character
+    if (code.startsWith('Key')) {
+      return code.slice(3).toUpperCase();
+    }
+    // Handle other special cases if needed
+    return code;
+  }
+
+  function getKeyColor(label) {
+    // Map key labels to colors
+    const colorMap = {
+      'A': { unhit: 'rgba(255, 71, 87, 0.9)', hit: 'rgba(255, 150, 160, 0.9)', stroke: '#ff6b7a' },
+      'S': { unhit: 'rgba(52, 211, 153, 0.9)', hit: 'rgba(110, 231, 183, 0.9)', stroke: '#34d399' },
+      'D': { unhit: 'rgba(59, 130, 246, 0.9)', hit: 'rgba(147, 197, 253, 0.9)', stroke: '#3b82f6' },
+      'F': { unhit: 'rgba(250, 204, 21, 0.9)', hit: 'rgba(253, 230, 138, 0.9)', stroke: '#facc15' }
+    };
+    return colorMap[label] || { unhit: 'rgba(34,193,195,0.9)', hit: 'rgba(126,252,106,0.9)', stroke: '#72d4ff' };
   }
 
   function generatePattern(startTime, count = beatCount) {
@@ -124,35 +153,37 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, dif
     };
     window.addEventListener('keydown', keyHandler);
 
-    // attach pointer handler
-    pointerHandler = (e) => {
-      const nowPtr = safeNow();
-      // choose nearest cue regardless of label for pointer input
-      let nearest = null;
-      let bestDiff = Infinity;
-      for (const cue of cues) {
-        if (cue.hit) continue;
-        const diff = Math.abs(nowPtr - cue.beatTime);
-        if (diff < bestDiff && diff <= 0.2) {
-          bestDiff = diff;
-          nearest = cue;
+    // attach pointer handler (unless keyboard-only mode)
+    if (!keyboardOnly) {
+      pointerHandler = (e) => {
+        const nowPtr = safeNow();
+        // choose nearest cue regardless of label for pointer input
+        let nearest = null;
+        let bestDiff = Infinity;
+        for (const cue of cues) {
+          if (cue.hit) continue;
+          const diff = Math.abs(nowPtr - cue.beatTime);
+          if (diff < bestDiff && diff <= 0.2) {
+            bestDiff = diff;
+            nearest = cue;
+          }
         }
-      }
-      if (!nearest) {
-        combo = 0;
-        lastJudgement = 'Miss';
-        onUpdateHUD({
-          score,
-          combo,
-          lastJudgement,
-          accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
-          precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
-        });
-        return;
-      }
-      handleInput(nowPtr, nearest.code);
-    };
-    canvas.addEventListener('pointerdown', pointerHandler);
+        if (!nearest) {
+          combo = 0;
+          lastJudgement = 'Miss';
+          onUpdateHUD({
+            score,
+            combo,
+            lastJudgement,
+            accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
+            precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
+          });
+          return;
+        }
+        handleInput(nowPtr, nearest.code);
+      };
+      canvas.addEventListener('pointerdown', pointerHandler);
+    }
 
     rafId = requestAnimationFrame(render);
   }
@@ -180,7 +211,16 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, dif
     ctx.font = '18px system-ui';
     ctx.fillText('Key-Press Rhythm Trainer', 12, 24);
     ctx.font = '14px system-ui';
-    ctx.fillText('Press the key shown inside the circle at the beat.', 12, 46);
+    ctx.fillText('Press the key shown inside the circle when it reaches the bottom.', 12, 46);
+
+    // Draw target line
+    const targetY = h * 0.9;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, targetY);
+    ctx.lineTo(w, targetY);
+    ctx.stroke();
 
     for (let i = cues.length - 1; i >= 0; i--) {
       const cue = cues[i];
@@ -206,20 +246,29 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, dif
       }
 
       const progress = Math.min(Math.max(t, 0), 1);
-      const x = w * 0.1 + (1 - progress) * (w * 0.8);
-      const y = h / 2;
+      const x = w / 2;
+      const y = h * 0.1 + progress * (h * 0.8);
 
+      const keyColor = getKeyColor(cue.label);
       ctx.beginPath();
       ctx.arc(x, y, 28, 0, Math.PI * 2);
-      ctx.fillStyle = cue.hit ? 'rgba(126,252,106,0.9)' : 'rgba(34,193,195,0.9)';
+      ctx.fillStyle = cue.hit ? keyColor.hit : keyColor.unhit;
       ctx.fill();
-      ctx.strokeStyle = cue.hit ? '#8de6a3' : '#72d4ff';
+      ctx.strokeStyle = keyColor.stroke;
       ctx.lineWidth = 3;
       ctx.stroke();
 
       ctx.fillStyle = '#071226';
       ctx.font = '18px system-ui';
-      ctx.fillText(cue.label, x - 7, y + 7);
+      ctx.fillText(getDisplayKey(cue.code), x - 7, y + 7);
+    }
+
+    // Check if game should end
+    if (cues.length === 0 && totalJudgements > 0 && !gameEnded) {
+      gameEnded = true;
+      if (onGameEnd) {
+        setTimeout(() => onGameEnd(), 500);
+      }
     }
 
     rafId = requestAnimationFrame(render);
