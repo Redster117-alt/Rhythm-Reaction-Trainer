@@ -278,7 +278,7 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
 
         if (now < tBeat) {
           const progress = Math.min(1, timeSinceSpawn / (tBeat - tSpawn));
-          const radius = tileSize * (0.35 + 0.25 * (1 - progress));
+          const radius = tileSize * (0.25 + 0.25 * (1 - progress));
           ctx.globalAlpha = 0.6;
           ctx.fillStyle = COLOURS[item.colourIndex - 1];
           ctx.beginPath();

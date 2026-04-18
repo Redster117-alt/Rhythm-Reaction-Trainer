@@ -150,7 +150,7 @@ th {
 /* small die grid (4 faces shown as squares) */
 .die-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
 }
 
@@ -197,8 +197,8 @@ th {
 
 /* tutorial gif bottom-right under die */
 .demo.gif {
-  position: right;
-  right: 12px;
+  position: left;
+  left: 12px;
   bottom: 12px;
   width: 160px;
   height: auto;
