@@ -7,7 +7,7 @@ export class AudioSchedulerPM {
     this.currentTime = 0;
     this.isPlaying = false;
     this.bpm = 146;
-    this.secondsPerBeat = 0.5;
+    this.secondsPerBeat = 60 / this.bpm;
     this.onBeatCallbacks = [];
     this.startTime = 0;
 
@@ -70,12 +70,12 @@ export class AudioSchedulerPM {
 
   setBPM(bpm) {
     this.bpm = bpm;
-    this.secondsPerBeat = 146 / bpm;
+    this.secondsPerBeat = 60 / bpm;
   }
 
   getCurrentTime() {
     if (!this.audioContext) return 0;
-    return this.audioContext.currentTime - this.startTime;
+    return Math.max(0, this.audioContext.currentTime - this.startTime);
   }
 
   playTileBeat(tileNumber) {

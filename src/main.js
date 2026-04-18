@@ -588,6 +588,11 @@ startBtn.addEventListener('click', async () => {
 
   if (selectedMode !== 'pattern') {
     audioScheduler = new AudioScheduler();
+    if (selectedMode === 'key') {
+      audioScheduler.setSoundProfile('keypress');
+    } else {
+      audioScheduler.setSoundProfile('default');
+    }
     audioScheduler.setBPM(difficulty.bpm);
     await audioScheduler.init();
   } else {

@@ -2,9 +2,14 @@
 // Secret developer console with Konami code activation
 
 export class DeveloperControls {
-  constructor() {
+  constructor({ activationSequence } = {}) {
     this.isActive = false;
-    this.konami = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight'];
+    this.activationSequence = this.normalizeActivationSequence(
+      activationSequence || [
+        'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight',
+        'KeyF', 'KeyU', 'KeyC', 'KeyK', 'Minus', 'KeyN', 'KeyI', 'KeyG', 'KeyG', 'KeyA', 'KeyS', 'Digit6', 'Period', 'Digit0'
+      ]
+    );
     this.konamiIndex = 0;
     this.panel = null;
     this.gameInstance = null;
@@ -23,13 +28,15 @@ export class DeveloperControls {
 
   handleKonamiCode(e) {
     const key = e.code;
+    const pressed = e.key.toUpperCase();
+    const expected = this.activationSequence[this.konamiIndex];
 
     // Check if this key matches the next in the sequence
-    if (key === this.konami[this.konamiIndex]) {
+    if (key === expected || pressed === expected.toUpperCase()) {
       this.konamiIndex++;
 
       // If sequence is complete, wait for 'D' key
-      if (this.konamiIndex === this.konami.length) {
+      if (this.konamiIndex === this.activationSequence.length) {
         this.konamiIndex = 0; // Reset for next attempt
         // Listen for next keydown
         const onKeyDown = (event) => {
@@ -197,9 +204,46 @@ export class DeveloperControls {
   setGameInstance(instance) {
     this.gameInstance = instance;
   }
+
+  setActivationSequence(sequence) {
+    if (Array.isArray(sequence) && sequence.length > 0) {
+      this.activationSequence = this.normalizeActivationSequence(sequence);
+      this.konamiIndex = 0;
+    }
+  }
+
+  normalizeActivationSequence(sequence) {
+    return sequence.map((item) => this.normalizeActivationKey(item));
+  }
+
+  normalizeActivationKey(item) {
+    const key = item.toString();
+    const normalized = key.trim();
+    const map = {
+      'ARROWUP': 'ArrowUp',
+      'ARROWDOWN': 'ArrowDown',
+      'ARROWLEFT': 'ArrowLeft',
+      'ARROWRIGHT': 'ArrowRight',
+      'KEY-': 'Minus',
+      'KEY.': 'Period',
+      'KEY0': 'Digit0',
+      'KEY1': 'Digit1',
+      'KEY2': 'Digit2',
+      'KEY3': 'Digit3',
+      'KEY4': 'Digit4',
+      'KEY5': 'Digit5',
+      'KEY6': 'Digit6',
+      'KEY7': 'Digit7',
+      'KEY8': 'Digit8',
+      'KEY9': 'Digit9'
+    };
+    const upper = normalized.toUpperCase();
+    if (map[upper]) return map[upper];
+    return normalized;
+  }
 }
 
 // Initialize on load
-export function initDevControls() {
-  return new DeveloperControls();
+export function initDevControls(options = {}) {
+  return new DeveloperControls(options);
 }

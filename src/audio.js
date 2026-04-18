@@ -1,8 +1,11 @@
+import { playKeyPressBeat } from './audioKeyPress.js';
+
 export class AudioScheduler {
-  constructor() {
+  constructor(soundProfile = 'default') {
     this.audioCtx = null;
     this.bpm = 120;
     this.interval = 60 / this.bpm;
+    this.soundProfile = soundProfile;
     this.isRunning = false;
     this._lookahead = 0.1; // seconds
     this._scheduleAheadTime = 0.5; // seconds
@@ -48,8 +51,21 @@ export class AudioScheduler {
     this._callbacks.push(callback);
   }
 
+  setSoundProfile(profile) {
+    this.soundProfile = profile;
+  }
+
   _emitBeat(time) {
-    // simple click sound
+    if (this.soundProfile === 'keypress') {
+      playKeyPressBeat(this.audioCtx, time);
+    } else {
+      this._playDefaultBeat(time);
+    }
+    // notify listeners with scheduled time
+    this._callbacks.forEach(cb => cb(time));
+  }
+
+  _playDefaultBeat(time) {
     const osc = this.audioCtx.createOscillator();
     const gain = this.audioCtx.createGain();
     osc.connect(gain);
@@ -59,8 +75,6 @@ export class AudioScheduler {
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
     osc.start(time);
     osc.stop(time + 0.06);
-    // notify listeners with scheduled time
-    this._callbacks.forEach(cb => cb(time));
   }
 
   getCurrentTime() {

@@ -1,5 +1,4 @@
 // src/modes/patternmemory.js
-import { getJudgement } from '../utils.js';
 import { AudioSchedulerPM } from '../audioPatternMemory.js';
 
 export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false } = {}) {
@@ -26,8 +25,8 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   const inputWindow = 3.0;
 
   let maxTile = 7;
-  if (difficulty.level === 'ez') maxTile = 2;
-  else if (difficulty.level === 'veteran' || difficulty.level === 'experienced') maxTile = 4;
+  if (difficulty.level === 'noob' || difficulty.level === 'ez') maxTile = 3;
+  else if (difficulty.level === 'veteran' || difficulty.level === 'experienced') maxTile = 5;
   else if (difficulty.level === 'expert') maxTile = 6;
   else if (difficulty.level === 'pro') maxTile = 7;
 
@@ -36,6 +35,11 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   let totalRounds = 10;
   let currentTile = null;
   let currentTileFlashTime = 1;
+  let inputStartedAt = 0;
+  let expectedClickTimes = [];
+  let userPresses = [];
+  let clickCount = 0;
+  let requiredClicks = 1;
   let hasPlayerInput = false;
   let devInjectJudgement = null;
   let devAddScore = 0;
@@ -119,6 +123,10 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     ctx.fillText(`Score: ${score}`, 12, 40);
     ctx.fillText(`Last: ${lastJudgement}`, 12, 60);
     ctx.fillText(`State: ${state}`, 12, 80);
+    if (state === 'input') {
+      ctx.fillText(`Presses: ${clickCount}/${requiredClicks}`, 12, 100);
+      ctx.fillText('Reproduce the beat now', 12, 120);
+    }
 
     rafId = requestAnimationFrame(render);
   }
@@ -154,6 +162,13 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     // After show duration, go to input phase
     setTimeout(() => {
       state = 'input';
+      inputStartedAt = safeNow();
+      const patternDelays = pmAudioScheduler.getBeatPattern(currentTile);
+      expectedClickTimes = patternDelays.map((delay) => inputStartedAt + delay);
+      userPresses = [];
+      clickCount = 0;
+      requiredClicks = expectedClickTimes.length || 1;
+      hasPlayerInput = false;
       inputTimeout = setTimeout(() => {
         evaluateRound();
       }, inputWindow * 1000);
@@ -161,8 +176,62 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   }
 
   function onKeyDown(e) {
-    if (state !== 'input' || e.ctrlKey || e.altKey || e.metaKey) return;
-    userPresses.push(safeNow());
+    if (state !== 'input' || e.ctrlKey || e.altKey || e.metaKey || hasPlayerInput) return;
+    const clickTime = safeNow();
+    if (!validateClickTiming(clickTime)) {
+      triggerGameOver();
+      return;
+    }
+    userPresses.push(clickTime);
+    clickCount += 1;
+    if (clickCount >= requiredClicks) {
+      hasPlayerInput = true;
+      evaluateRound();
+    }
+  }
+
+  function evaluateRound() {
+    if (inputTimeout) {
+      clearTimeout(inputTimeout);
+      inputTimeout = null;
+    }
+
+    let judgement = 'Miss';
+    if (devInjectJudgement) {
+      judgement = devInjectJudgement;
+      devInjectJudgement = null;
+    } else if (clickCount === requiredClicks && userPresses.length === requiredClicks) {
+      const tolerance = getTimingTolerance();
+      let allPerfect = true;
+      let allGood = true;
+
+      for (let i = 0; i < requiredClicks; i++) {
+        const diff = userPresses[i] - expectedClickTimes[i];
+        if (Math.abs(diff) <= tolerance.perfect) {
+          continue;
+        }
+        if (Math.abs(diff) <= tolerance.good) {
+          allPerfect = false;
+          continue;
+        }
+        allGood = false;
+        allPerfect = false;
+        break;
+      }
+
+      if (allPerfect) {
+        judgement = 'Perfect';
+      } else if (allGood) {
+        judgement = 'Good';
+      }
+    }
+
+    if (judgement === 'Miss') {
+      triggerGameOver();
+      return;
+    }
+
+    applyJudgement(judgement);
   }
 
   function applyJudgement(judgementLabel) {
@@ -180,6 +249,11 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
       combo += 1;
     } else {
       combo = 0;
+    }
+
+    if (devAddScore) {
+      score += devAddScore;
+      devAddScore = 0;
     }
 
     lastJudgement = judgement.label;
@@ -206,20 +280,35 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   }
 
   function onPointerDown(e) {
-    if (state !== 'input') return;
+    if (state !== 'input' || hasPlayerInput) return;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
 
     // Only register clicks on the left side
     if (px < canvas.width / 2) {
-      userPresses.push(safeNow());
+      const clickTime = safeNow();
+      if (!validateClickTiming(clickTime)) {
+        triggerGameOver();
+        return;
+      }
+      userPresses.push(clickTime);
+      clickCount += 1;
+      if (clickCount >= requiredClicks) {
+        hasPlayerInput = true;
+        evaluateRound();
+      }
     }
   }
 
   function triggerGameOver() {
+    if (state !== 'input') return;
     state = 'gameover';
     lastJudgement = 'Game Over';
     onUpdateHUDSafe();
+    if (inputTimeout) {
+      clearTimeout(inputTimeout);
+      inputTimeout = null;
+    }
     canvas.animate([{ opacity: 1 }, { opacity: 0.2 }, { opacity: 1 }], { duration: 420 });
     setTimeout(() => {
       stop();
@@ -235,6 +324,8 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     pmAudioScheduler.setBPM(120);
     pmAudioScheduler.init().then(() => {
       pmAudioScheduler.start();
+    }).catch(() => {
+      // Ignore audio resume errors if autoplay is blocked.
     });
 
     canvas.addEventListener('pointerdown', onPointerDown);
@@ -265,32 +356,88 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     }
     canvas.removeEventListener('pointerdown', onPointerDown);
     window.removeEventListener('keydown', onKeyDown);
+    if (inputTimeout) {
+      clearTimeout(inputTimeout);
+      inputTimeout = null;
+    }
     state = 'idle';
     pmAudioScheduler.stop();
+  }
+
+  function getState() {
+    return {
+      score,
+      combo,
+      lastJudgement,
+      totals: {
+        totalJudgements,
+        perfectCount,
+        goodCount,
+        totalOffset
+      },
+      currentRound,
+      state
+    };
+  }
+
+  function validateClickTiming(clickTime) {
+    if (clickCount >= requiredClicks) {
+      return false;
+    }
+
+    const allowedEarly = getTimingTolerance().good;
+    const expectedTime = expectedClickTimes[clickCount];
+    const diff = clickTime - expectedTime;
+
+    if (diff < -allowedEarly || diff > allowedEarly) {
+      return false;
+    }
+    if (clickCount > 0 && clickTime <= userPresses[clickCount - 1]) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getTimingTolerance() {
+    const difficultyLevel = difficulty.level || 'noob';
+    const thresholds = {
+      noob: { perfect: 0.35, good: 0.6 },
+      ez: { perfect: 0.3, good: 0.5 },
+      veteran: { perfect: 0.22, good: 0.4 },
+      experienced: { perfect: 0.18, good: 0.35 },
+      expert: { perfect: 0.14, good: 0.3 },
+      pro: { perfect: 0.12, good: 0.25 }
+    };
+    return thresholds[difficultyLevel] || thresholds.noob;
   }
 
   // Developer control methods
   function devForceTile(tile) {
     if (state === 'idle' || state === 'countdown') return;
     currentTile = tile;
+    currentTileFlashTime = safeNow();
     console.log(`%c🔧 Dev: Forced tile to ${tile}`, 'color: #ff0000;');
   }
 
   function devInjectJudgementFunc(judgement) {
     devInjectJudgement = judgement;
     console.log(`%c🔧 Dev: Injected judgement ${judgement}`, 'color: #ff0000;');
+    if (state === 'input' && !hasPlayerInput) {
+      evaluateRound();
+    }
   }
 
   function devAddScoreFunc(amount) {
-    devAddScore = amount;
+    devAddScore += amount;
     console.log(`%c🔧 Dev: Added ${amount} score`, 'color: #ff0000;');
   }
 
   function reset() {
     stop();
-    // Restart with same params - but params not stored, so just stop for now
-    console.log('%c🔧 Dev: Game reset (stopped)', 'color: #ff0000;');
+    console.log('%c🔧 Dev: Game reset', 'color: #ff0000;');
+    setTimeout(() => start(), 100);
   }
 
-  return { start, stop, devForceTile, devInjectJudgementFunc, devAddScoreFunc, reset };
+  return { start, stop, getState, devForceTile, devInjectJudgementFunc, devAddScoreFunc, reset };
 }
