@@ -1,10 +1,10 @@
 // src/modes/keypress.js
-import { getJudgement } from '../utils.js';
+import { playKeyPressBeat } from '../audioKeyPress.js';
 
 export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onGameEnd, difficulty = {}, keybinds = {}, pattern = null, debug = false, keyboardOnly = true } = {}) {
   const ctx = canvas.getContext('2d');
   let rafId = null;
-  let cues = []; // { beatTime, spawnTime, hit, label, code }
+  let cues = [];
   let score = 0;
   let combo = 0;
   let lastJudgement = '—';
@@ -13,16 +13,23 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
   let goodCount = 0;
   let totalOffset = 0;
   let gameEnded = false;
+  let forcedJudgement = null;
+  let pendingScoreAdd = 0;
 
   const leadTime = typeof difficulty.leadTime === 'number' ? difficulty.leadTime : 0.6;
   const beatCount = typeof difficulty.patternBeats === 'number' ? difficulty.patternBeats : 8;
-  const difficultyLevel = difficulty.level || 'noob'; // 'noob', 'ez', 'veteran', 'experienced', 'expert', 'pro'
-  
-  // Map keybinds to labels (A -> KeyA, etc)
+  const perfectWindow = typeof difficulty.perfect === 'number' ? difficulty.perfect : 0.12;
+  const goodWindow = typeof difficulty.good === 'number' ? difficulty.good : 0.22;
+  const maxWindow = goodWindow;
+  const difficultyLevel = difficulty.level || 'noob';
+
   let availableLabels = Object.keys(keybinds).length ? Object.keys(keybinds) : ['A', 'S', 'D', 'F'];
-  
-  // Randomise order for medium/hard difficulties
-  if ((difficultyLevel === 'veteran' || difficultyLevel === 'experienced' || difficultyLevel === 'expert' || difficultyLevel === 'pro') && Math.random() > 0.5) {
+  const normalizedKeybinds = {};
+  Object.keys(keybinds).forEach((label) => {
+    normalizedKeybinds[label] = keybinds[label];
+  });
+
+  if (['veteran', 'experienced', 'expert', 'pro'].includes(difficultyLevel) && Math.random() > 0.5) {
     availableLabels = availableLabels.slice().sort(() => Math.random() - 0.5);
   }
 
@@ -30,20 +37,26 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
   let pointerHandler = null;
 
   function safeNow() {
-    return audioScheduler && typeof audioScheduler.getCurrentTime === 'function' ? audioScheduler.getCurrentTime() : 0;
+    return audioScheduler && typeof audioScheduler.getCurrentTime === 'function' ? audioScheduler.getCurrentTime() : performance.now() / 1000;
   }
 
   function getDisplayKey(code) {
-    // Convert key code to displayable character
     if (code.startsWith('Key')) {
       return code.slice(3).toUpperCase();
     }
-    // Handle other special cases if needed
+    if (code.startsWith('Digit')) {
+      return code.slice(5);
+    }
+    if (code === 'Minus') {
+      return '-';
+    }
+    if (code === 'Period') {
+      return '.';
+    }
     return code;
   }
 
   function getKeyColor(label) {
-    // Map key labels to colors
     const colorMap = {
       'A': { unhit: 'rgba(255, 71, 87, 0.9)', hit: 'rgba(255, 150, 160, 0.9)', stroke: '#ff6b7a' },
       'S': { unhit: 'rgba(52, 211, 153, 0.9)', hit: 'rgba(110, 231, 183, 0.9)', stroke: '#34d399' },
@@ -53,43 +66,56 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     return colorMap[label] || { unhit: 'rgba(34,193,195,0.9)', hit: 'rgba(126,252,106,0.9)', stroke: '#72d4ff' };
   }
 
+  function getJudgementForDiff(diff) {
+    const abs = Math.abs(diff);
+    if (abs <= perfectWindow) return { label: 'Perfect', points: 300 };
+    if (abs <= goodWindow) return { label: 'Good', points: 100 };
+    return { label: 'Miss', points: 0 };
+  }
+
   function generatePattern(startTime, count = beatCount) {
-    const spb = audioScheduler && audioScheduler.secondsPerBeat ? audioScheduler.secondsPerBeat : 0.5;
-    const patternData = [];
-    for (let i = 0; i < count; i++) {
-      const label = availableLabels[i % availableLabels.length];
-      const code = keybinds[label] || `Key${label}`;
-      const beatTime = startTime + i * spb;
-      patternData.push({ beatTime, label, code, spawnTime: beatTime - leadTime, hit: false });
-    }
-    return patternData;
+    const spb = audioScheduler && typeof audioScheduler.secondsPerBeat === 'number'
+      ? audioScheduler.secondsPerBeat
+      : (audioScheduler && typeof audioScheduler.interval === 'number' ? audioScheduler.interval : 0.5);
+    return Array.from({ length: count }, (_, index) => {
+      const label = availableLabels[index % availableLabels.length];
+      const code = normalizedKeybinds[label] || `Key${label}`;
+      const beatTime = startTime + index * spb;
+      return { beatTime, label, code, spawnTime: beatTime - leadTime, hit: false };
+    });
   }
 
   function spawnPattern(patternData) {
-    cues = patternData.map(c => ({ ...c }));
+    cues = patternData.map(cue => ({ ...cue }));
   }
 
-  function updateStats(diff) {
-    const judgement = getJudgement(diff);
-    totalJudgements += 1;
-    totalOffset += Math.abs(diff);
-    if (judgement.label === 'Perfect') perfectCount += 1;
-    if (judgement.label === 'Good') goodCount += 1;
-    if (judgement.label === 'Miss') combo = 0;
-    return judgement;
+  function updateHUD() {
+    if (typeof onUpdateHUD === 'function') {
+      onUpdateHUD({
+        score,
+        combo,
+        lastJudgement,
+        accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
+        precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
+      });
+    }
   }
 
   function handleInput(eventTime, keyCode) {
+    if (gameEnded) return;
     let nearest = null;
     let bestDiff = Infinity;
 
     for (const cue of cues) {
       if (cue.hit) continue;
-      // allow matching by explicit code or by fallback label -> KeyX
-      const expectedCodes = [cue.code, `Key${cue.label}`];
+      const expectedCodes = [cue.code];
+      if (/^[A-Z]$/.test(cue.code) || cue.code === `Key${cue.label}`) {
+        expectedCodes.push(`Key${cue.label}`);
+      }
       if (!expectedCodes.includes(keyCode)) continue;
+
       const diff = Math.abs(eventTime - cue.beatTime);
-      if (diff < bestDiff && diff <= 0.2) {
+      if (diff < bestDiff && diff <= maxWindow) {
         bestDiff = diff;
         nearest = cue;
       }
@@ -98,97 +124,134 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     if (!nearest) {
       combo = 0;
       lastJudgement = 'Miss';
-      onUpdateHUD({
-        score,
-        combo,
-        lastJudgement,
-        accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
-        precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
-      });
+      totalJudgements += 1;
+      totalOffset += maxWindow;
+      updateHUD();
       return;
     }
 
     const diffSigned = eventTime - nearest.beatTime;
-    const judgement = updateStats(diffSigned);
     nearest.hit = true;
-    lastJudgement = judgement.label;
+    totalJudgements += 1;
+    totalOffset += Math.abs(diffSigned);
 
-    if (judgement.points > 0) {
-      score += judgement.points;
-      combo += 1;
+    let judgement;
+    if (forcedJudgement) {
+      judgement = { label: forcedJudgement, points: forcedJudgement === 'Perfect' ? 300 : forcedJudgement === 'Good' ? 100 : 0 };
+      lastJudgement = forcedJudgement;
+      if (forcedJudgement === 'Perfect') {
+        score += judgement.points;
+        perfectCount += 1;
+        combo += 1;
+      } else if (forcedJudgement === 'Good') {
+        score += judgement.points;
+        goodCount += 1;
+        combo += 1;
+      } else {
+        combo = 0;
+      }
+      forcedJudgement = null;
     } else {
-      combo = 0;
+      judgement = getJudgementForDiff(diffSigned);
+      lastJudgement = judgement.label;
+      if (judgement.label === 'Perfect') {
+        score += judgement.points;
+        perfectCount += 1;
+        combo += 1;
+      } else if (judgement.label === 'Good') {
+        score += judgement.points;
+        goodCount += 1;
+        combo += 1;
+      } else {
+        combo = 0;
+      }
     }
 
-    onUpdateHUD({
-      score,
-      combo,
-      lastJudgement,
-      accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
-      precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
-    });
+    if (pendingScoreAdd) {
+      score += pendingScoreAdd;
+      pendingScoreAdd = 0;
+    }
+
+    updateHUD();
+  }
+
+  function handleKeyDown(e) {
+    if (['Space', 'Enter', 'Backspace'].includes(e.code)) return;
+    const nowKey = safeNow();
+    const boundCodes = Object.values(normalizedKeybinds);
+    if (boundCodes.length) {
+      const normalizedCode = e.code;
+      const accepted = boundCodes.some((code) => code === normalizedCode || (code.length === 1 && normalizedCode === `Key${code}`));
+      if (!accepted) return;
+    }
+    e.preventDefault();
+    handleInput(nowKey, e.code);
+  }
+
+  function handlePointerDown() {
+    const nowPtr = safeNow();
+    let nearest = null;
+    let bestDiff = Infinity;
+    for (const cue of cues) {
+      if (cue.hit) continue;
+      const diff = Math.abs(nowPtr - cue.beatTime);
+      if (diff < bestDiff && diff <= maxWindow) {
+        bestDiff = diff;
+        nearest = cue;
+      }
+    }
+    if (!nearest) {
+      combo = 0;
+      lastJudgement = 'Miss';
+      totalJudgements += 1;
+      totalOffset += maxWindow;
+      updateHUD();
+      return;
+    }
+    handleInput(nowPtr, nearest.code);
   }
 
   function start() {
-    if (canvas) {
-      canvas.classList.remove('pattern-memory-mode');
-      canvas.style.width = '';
-      canvas.style.height = '';
-      canvas.width = 800;
-      canvas.height = 500;
-    }
+    stop();
+    score = 0;
+    combo = 0;
+    lastJudgement = '—';
+    totalJudgements = 0;
+    perfectCount = 0;
+    goodCount = 0;
+    totalOffset = 0;
+    gameEnded = false;
+    forcedJudgement = null;
+    pendingScoreAdd = 0;
+    cues = [];
+
     const now = safeNow();
     const startAt = now + 0.5;
     const patternData = pattern
       ? pattern.map((offset, index) => {
           const label = availableLabels[index % availableLabels.length];
-          return { beatTime: startAt + offset, label, code: keybinds[label] || `Key${label}`, spawnTime: startAt + offset - leadTime, hit: false };
+          const code = normalizedKeybinds[label] || `Key${label}`;
+          return { beatTime: startAt + offset, label, code, spawnTime: startAt + offset - leadTime, hit: false };
         })
       : generatePattern(startAt, beatCount);
 
     spawnPattern(patternData);
 
-    // attach key handler
-    keyHandler = (e) => {
-      if (['Space', 'Enter', 'Backspace'].includes(e.code)) return;
-      const nowKey = safeNow();
-      // if custom keybinds provided, only accept those codes; otherwise accept letter keys
-      const allowedCodes = Object.values(keybinds).length ? Object.values(keybinds) : null;
-      if (allowedCodes && !allowedCodes.includes(e.code) && !availableLabels.includes(e.key.toUpperCase())) return;
-      e.preventDefault();
-      handleInput(nowKey, e.code);
-    };
+    // Schedule audio beats directly at cue beat times
+    if (audioScheduler && audioScheduler.audioCtx && audioScheduler.audioCtx.state !== 'closed') {
+      patternData.forEach((cue) => {
+        // Calculate the audio context time when the cue should play
+        const timeUntilBeat = cue.beatTime - safeNow();
+        const audioScheduleTime = audioScheduler.audioCtx.currentTime + timeUntilBeat;
+        playKeyPressBeat(audioScheduler.audioCtx, audioScheduleTime);
+      });
+    }
+
+    keyHandler = handleKeyDown;
     window.addEventListener('keydown', keyHandler);
 
-    // attach pointer handler (unless keyboard-only mode)
     if (!keyboardOnly) {
-      pointerHandler = (e) => {
-        const nowPtr = safeNow();
-        // choose nearest cue regardless of label for pointer input
-        let nearest = null;
-        let bestDiff = Infinity;
-        for (const cue of cues) {
-          if (cue.hit) continue;
-          const diff = Math.abs(nowPtr - cue.beatTime);
-          if (diff < bestDiff && diff <= 0.2) {
-            bestDiff = diff;
-            nearest = cue;
-          }
-        }
-        if (!nearest) {
-          combo = 0;
-          lastJudgement = 'Miss';
-          onUpdateHUD({
-            score,
-            combo,
-            lastJudgement,
-            accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
-            precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
-          });
-          return;
-        }
-        handleInput(nowPtr, nearest.code);
-      };
+      pointerHandler = (e) => handlePointerDown(e);
       canvas.addEventListener('pointerdown', pointerHandler);
     }
 
@@ -220,7 +283,6 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     ctx.font = '14px system-ui';
     ctx.fillText('Press the key shown inside the circle when it reaches the bottom.', 12, 46);
 
-    // Draw target line
     const targetY = h * 0.9;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.lineWidth = 3;
@@ -229,31 +291,31 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     ctx.lineTo(w, targetY);
     ctx.stroke();
 
+    // Map lane indices to x positions (4 columns: A, S, D, F)
+    const getLaneX = (label) => {
+      const laneIndex = availableLabels.indexOf(label);
+      return w * (laneIndex + 0.5) / 4; // Center each cue in its lane
+    };
+
     for (let i = cues.length - 1; i >= 0; i--) {
       const cue = cues[i];
       const denom = (cue.beatTime - cue.spawnTime) || 1;
       const t = (now - cue.spawnTime) / denom;
 
-      if (now > cue.beatTime + 0.4) {
+      if (now > cue.beatTime + maxWindow) {
         if (!cue.hit) {
           combo = 0;
           lastJudgement = 'Miss';
           totalJudgements += 1;
           totalOffset += Math.abs(now - cue.beatTime);
-          onUpdateHUD({
-            score,
-            combo,
-            lastJudgement,
-            accuracy: totalJudgements ? Math.round(((perfectCount + goodCount) / totalJudgements) * 100) : 0,
-            precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
-          });
+          updateHUD();
         }
         cues.splice(i, 1);
         continue;
       }
 
       const progress = Math.min(Math.max(t, 0), 1);
-      const x = w / 2;
+      const x = getLaneX(cue.label);
       const y = h * 0.1 + progress * (h * 0.8);
 
       const keyColor = getKeyColor(cue.label);
@@ -267,10 +329,11 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
 
       ctx.fillStyle = '#071226';
       ctx.font = '18px system-ui';
-      ctx.fillText(getDisplayKey(cue.code), x - 7, y + 7);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(getDisplayKey(cue.code), x, y);
     }
 
-    // Check if game should end
     if (cues.length === 0 && totalJudgements > 0 && !gameEnded) {
       gameEnded = true;
       if (onGameEnd) {
@@ -281,16 +344,47 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     rafId = requestAnimationFrame(render);
   }
 
-  return {
-    start,
-    stop,
-    getState: () => ({
+  function getState() {
+    return {
       score,
       combo,
       lastJudgement,
       cues: cues.slice(),
       totals: { totalJudgements, perfectCount, goodCount, totalOffset }
-    }),
+    };
+  }
+
+  function devInjectJudgementFunc(judgement) {
+    forcedJudgement = judgement;
+  }
+
+  function devAddScoreFunc(amount) {
+    pendingScoreAdd += amount;
+  }
+
+  function reset() {
+    stop();
+    score = 0;
+    combo = 0;
+    lastJudgement = '—';
+    totalJudgements = 0;
+    perfectCount = 0;
+    goodCount = 0;
+    totalOffset = 0;
+    gameEnded = false;
+    cues = [];
+    forcedJudgement = null;
+    pendingScoreAdd = 0;
+    start();
+  }
+
+  return {
+    start,
+    stop,
+    getState,
+    devInjectJudgementFunc,
+    devAddScoreFunc,
+    reset,
     setDebug: (v) => { debug = !!v; }
   };
 }

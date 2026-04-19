@@ -5,6 +5,7 @@ export class AudioScheduler {
     this.audioCtx = null;
     this.bpm = 120;
     this.interval = 60 / this.bpm;
+    this.secondsPerBeat = 60 / this.bpm;
     this.soundProfile = soundProfile;
     this.isRunning = false;
     this._lookahead = 0.1; // seconds
@@ -84,5 +85,6 @@ export class AudioScheduler {
   setBPM(bpm) {
     this.bpm = bpm;
     this.interval = 60 / bpm;
+    this.secondsPerBeat = 60 / bpm;
   }
 }

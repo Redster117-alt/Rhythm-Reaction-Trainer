@@ -10,6 +10,11 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
   let goodCount = 0;
   let missCount = 0;
   let totalOffset = 0;
+  let forcedJudgement = null;
+  let pendingScoreAdd = 0;
+  let mouseHandler = null;
+  let consecutiveMissCount = 0;
+  const maxConsecutiveMisses = ['veteran', 'experienced', 'expert', 'pro']
 
   const difficultyMode = difficulty.level || 'noob';
   const timingPresets = {
@@ -100,6 +105,14 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         totalJudgements += 1;
         missCount += 1;
         totalOffset += timeSinceBeat;
+        consecutiveMissCount += 1;
+        if (consecutiveMissCount >= maxConsecutiveMisses) {
+          // End game due to too many consecutive misses
+          setTimeout(() => {
+            stop();
+            if (onGameEnd) onGameEnd();
+          }, 500);
+        }
         onUpdateHUD({
           score,
           combo,
@@ -117,19 +130,24 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
       cancelAnimationFrame(rafId);
       rafId = null;
     }
+    if (mouseHandler) {
+      canvas.removeEventListener('mousedown', mouseHandler);
+      mouseHandler = null;
+    }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   function handleInput() {
-    canvas.addEventListener('mousedown', (e) => {
+    mouseHandler = (e) => {
       const now = scheduler.getCurrentTime();
-      // find nearest unhit cue within timing window
+      // find nearest unhit cue, accept any timing if developer forced judgement
       let nearest = null;
       let bestDiff = Infinity;
+      const maximumWindow = forcedJudgement ? Infinity : timingWindows.good;
       for (const c of cues) {
         if (c.hit) continue;
         const diff = Math.abs(now - c.beatTime);
-        if (diff < bestDiff && diff <= timingWindows.good) {
+        if (diff < bestDiff && diff <= maximumWindow) {
           bestDiff = diff;
           nearest = c;
         }
@@ -140,6 +158,13 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         combo = 0;
         totalJudgements += 1;
         missCount += 1;
+        consecutiveMissCount += 1;
+        if (consecutiveMissCount >= maxConsecutiveMisses) {
+          setTimeout(() => {
+            stop();
+            if (onGameEnd) onGameEnd();
+          }, 500);
+        }
         onUpdateHUD({
           score,
           combo,
@@ -151,18 +176,46 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
       }
       nearest.hit = true;
       totalJudgements += 1;
-      totalOffset += bestDiff;
-      if (bestDiff <= timingWindows.perfect) {
+      const diff = bestDiff;
+      totalOffset += diff;
+      consecutiveMissCount = 0; // Reset on hit
+
+      if (forcedJudgement) {
+        lastJudgement = forcedJudgement;
+        if (forcedJudgement === 'Perfect') {
+          score += 300;
+          combo += 1;
+          perfectCount += 1;
+        } else if (forcedJudgement === 'Good') {
+          score += 100;
+          combo += 1;
+          goodCount += 1;
+        } else {
+          combo = 0;
+          missCount += 1;
+        }
+        forcedJudgement = null;
+      } else if (diff <= timingWindows.perfect) {
         score += 300;
         combo += 1;
         lastJudgement = 'Perfect';
         perfectCount += 1;
-      } else if (bestDiff <= timingWindows.good) {
+      } else if (diff <= timingWindows.good) {
         score += 100;
         combo += 1;
         lastJudgement = 'Good';
         goodCount += 1;
+      } else {
+        combo = 0;
+        lastJudgement = 'Miss';
+        missCount += 1;
       }
+
+      if (pendingScoreAdd) {
+        score += pendingScoreAdd;
+        pendingScoreAdd = 0;
+      }
+
       onUpdateHUD({
         score,
         combo,
@@ -170,7 +223,8 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         accuracy: Math.round(((perfectCount + goodCount) / totalJudgements) * 100),
         precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
       });
-    });
+    };
+    canvas.addEventListener('mousedown', mouseHandler);
   }
 
   function start() {
@@ -185,5 +239,45 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
     handleInput();
   }
 
-  return { start, stop };
+  function getState() {
+    return {
+      score,
+      combo,
+      lastJudgement,
+      totals: {
+        totalJudgements,
+        perfectCount,
+        goodCount,
+        missCount,
+        totalOffset
+      }
+    };
+  }
+
+  function devInjectJudgementFunc(judgement) {
+    forcedJudgement = judgement;
+  }
+
+  function devAddScoreFunc(amount) {
+    pendingScoreAdd += amount;
+  }
+
+  function reset() {
+    stop();
+    score = 0;
+    combo = 0;
+    lastJudgement = '—';
+    totalJudgements = 0;
+    perfectCount = 0;
+    goodCount = 0;
+    missCount = 0;
+    totalOffset = 0;
+    cues.length = 0;
+    forcedJudgement = null;
+    pendingScoreAdd = 0;
+    consecutiveMissCount = 0;
+    start();
+  }
+
+  return { start, stop, getState, devInjectJudgementFunc, devAddScoreFunc, reset };
 }

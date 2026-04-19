@@ -1,7 +1,7 @@
 // src/modes/patternmemory.js
 import { AudioSchedulerPM } from '../audioPatternMemory.js';
 
-export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false } = {}) {
+export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false, customPattern = null } = {}) {
   const ctx = canvas.getContext('2d');
 
   const COLOURS = [
@@ -32,7 +32,13 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
 
   let state = 'idle'; // idle, countdown, showing, input, gameover
   let currentRound = 0;
-  let totalRounds = 10;
+  let totalRounds = difficulty.level === 'noob' ? 5 :
+                   difficulty.level === 'ez' ? 6 :
+                   difficulty.level === 'veteran' ? 7 :
+                   difficulty.level === 'experienced' ? 8 :
+                   difficulty.level === 'expert' ? 9 :
+                   difficulty.level === 'pro' ? 10 : 10;
+  let customTiles = customPattern ? customPattern.filter(t => t > 0) : [];
   let currentTile = null;
   let currentTileFlashTime = 1;
   let inputStartedAt = 0;
@@ -148,8 +154,12 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
       return;
     }
 
-    // Pick a random tile (1-maxTile)
-    currentTile = Math.floor(Math.random() * maxTile) + 1;
+    // Pick a tile: use custom tiles if available, otherwise random
+    if (customTiles.length > 0 && currentRound < customTiles.length) {
+      currentTile = customTiles[currentRound];
+    } else {
+      currentTile = Math.floor(Math.random() * maxTile) + 1;
+    }
     hasPlayerInput = false;
     currentTileFlashTime = safeNow();
 
@@ -321,7 +331,7 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     canvas.width = canvas.height = 400;
     canvas.style.width = canvas.style.height = '400px';
 
-    pmAudioScheduler.setBPM(120);
+    pmAudioScheduler.setBPM(difficulty.bpm || 120);
     pmAudioScheduler.init().then(() => {
       pmAudioScheduler.start();
     }).catch(() => {
@@ -402,12 +412,12 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   function getTimingTolerance() {
     const difficultyLevel = difficulty.level || 'noob';
     const thresholds = {
-      noob: { perfect: 0.35, good: 0.6 },
-      ez: { perfect: 0.3, good: 0.5 },
-      veteran: { perfect: 0.22, good: 0.4 },
-      experienced: { perfect: 0.18, good: 0.35 },
-      expert: { perfect: 0.14, good: 0.3 },
-      pro: { perfect: 0.12, good: 0.25 }
+      noob: { perfect: 0.42, good: 0.55 },
+      ez: { perfect: 0.37, good: 0.5 },
+      veteran: { perfect: 0.29, good: 0.45 },
+      experienced: { perfect: 0.25, good: 0.4 },
+      expert: { perfect: 0.21, good: 0.35 },
+      pro: { perfect: 0.19, good: 0.3 }
     };
     return thresholds[difficultyLevel] || thresholds.noob;
   }

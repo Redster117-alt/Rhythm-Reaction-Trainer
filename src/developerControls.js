@@ -13,7 +13,7 @@ export class DeveloperControls {
     this.konamiIndex = 0;
     this.panel = null;
     this.gameInstance = null;
-    this.selectedTile = null;
+    this.patternConfig = Array(10).fill(0); // 0 means none
 
     this.init();
   }
@@ -28,30 +28,20 @@ export class DeveloperControls {
 
   handleKonamiCode(e) {
     const key = e.code;
-    const pressed = e.key.toUpperCase();
     const expected = this.activationSequence[this.konamiIndex];
 
-    // Check if this key matches the next in the sequence
-    if (key === expected || pressed === expected.toUpperCase()) {
-      this.konamiIndex++;
-
-      // If sequence is complete, wait for 'D' key
+    if (key === expected) {
+      this.konamiIndex += 1;
       if (this.konamiIndex === this.activationSequence.length) {
-        this.konamiIndex = 0; // Reset for next attempt
-        // Listen for next keydown
-        const onKeyDown = (event) => {
-          if (event.key.toUpperCase() === 'D') {
-            this.togglePanel();
-            window.removeEventListener('keydown', onKeyDown);
-          } else {
-            this.konamiIndex = 0;
-            window.removeEventListener('keydown', onKeyDown);
-          }
-        };
-        window.addEventListener('keydown', onKeyDown);
+        this.konamiIndex = 0;
+        this.togglePanel();
       }
-    } else {
-      this.konamiIndex = 0;
+      return;
+    }
+
+    this.konamiIndex = 0;
+    if (key === this.activationSequence[0]) {
+      this.konamiIndex = 1;
     }
   }
 
@@ -83,21 +73,32 @@ export class DeveloperControls {
       </div>
 
       <div style="margin-bottom: 12px;">
-        <label style="display: block; margin-bottom: 4px;">Pattern Memory - Select Tile:</label>
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-          <button class="dev-tile-btn" data-tile="1" style="padding: 6px; background: #ff3b30; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">R1</button>
-          <button class="dev-tile-btn" data-tile="2" style="padding: 6px; background: #ff9500; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">O2</button>
-          <button class="dev-tile-btn" data-tile="3" style="padding: 6px; background: #ffcc00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Y3</button>
-          <button class="dev-tile-btn" data-tile="4" style="padding: 6px; background: #34c759; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">G4</button>
-          <button class="dev-tile-btn" data-tile="5" style="padding: 6px; background: #007aff; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">B5</button>
-          <button class="dev-tile-btn" data-tile="6" style="padding: 6px; background: #5856d6; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Pu6</button>
-          <button class="dev-tile-btn" data-tile="7" style="padding: 6px; background: #af52de; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Pi7</button>
+        <label style="display: block; margin-bottom: 4px;">Pattern Memory Configuration:</label>
+        <div id="pattern-config-list" style="max-height: 200px; overflow-y: auto;">
+          ${Array.from({ length: 10 }, (_, i) => `
+            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+              <span style="width: 30px; font-size: 11px;">${i + 1}:</span>
+              <select class="dev-pattern-select" data-pos="${i}" style="flex: 1; padding: 2px; font-size: 11px;">
+                <option value="0">None</option>
+                <option value="1">R1</option>
+                <option value="2">O2</option>
+                <option value="3">Y3</option>
+                <option value="4">G4</option>
+                <option value="5">B5</option>
+                <option value="6">Pu6</option>
+                <option value="7">Pi7</option>
+              </select>
+            </div>
+          `).join('')}
         </div>
-        <p style="margin: 6px 0 0 0; color: #aa0000; font-size: 11px;">Selected: <span id="dev-selected-tile">None</span></p>
+        <button id="dev-clear-pattern" style="width: 100%; padding: 4px; margin-top: 4px; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Clear Pattern</button>
       </div>
 
       <div style="margin-bottom: 12px;">
         <label style="display: block; margin-bottom: 4px;">Quick Actions:</label>
+        <label style="display: block; margin-bottom: 4px; font-size: 11px;">
+          <input type="checkbox" id="dev-force-enabled" checked> Enable Force Buttons
+        </label>
         <button id="dev-force-perfect" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #00ff00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Perfect</button>
         <button id="dev-force-good" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #00cc00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Good</button>
         <button id="dev-force-miss" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #ff4444; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Miss</button>
@@ -105,12 +106,12 @@ export class DeveloperControls {
 
       <div style="margin-bottom: 12px;">
         <label style="display: block; margin-bottom: 4px;">Game Controls:</label>
-        <button id="dev-reset-game" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #ffaa00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Reset Game</button>
+        <button id="dev-reset-game" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #ffaa00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Refresh Page</button>
         <button id="dev-add-score" style="width: 100%; padding: 6px; background: #00ffff; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Add 1000 Score</button>
       </div>
 
       <div style="border-top: 1px solid #ff0000; padding-top: 8px;">
-        <p style="margin: 0; color: #aa0000; font-size: 10px;">Sequence: ↑↑↓↓←→←→D to activate</p>
+        <p id="dev-activation-sequence" style="margin: 0; color: #aa0000; font-size: 10px;">Sequence: ${this.formatActivationSequence()} to activate</p>
       </div>
     `;
 
@@ -119,23 +120,83 @@ export class DeveloperControls {
 
     // Attach event listeners
     this.attachEventListeners();
+    this.updateActivationInstructions();
   }
 
   attachEventListeners() {
-    // Tile selection buttons
-    document.querySelectorAll('.dev-tile-btn').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        const tile = e.target.dataset.tile;
-        this.selectTile(tile);
-      });
+    // Pattern configuration selects
+    document.addEventListener('change', (e) => {
+      if (e.target.classList.contains('dev-pattern-select')) {
+        const pos = parseInt(e.target.dataset.pos);
+        const value = parseInt(e.target.value);
+        this.updatePatternConfig(pos, value);
+      }
+    });
+
+    // Clear pattern button
+    document.addEventListener('click', (e) => {
+      if (e.target.id === 'dev-clear-pattern') {
+        this.clearPatternConfig();
+      }
     });
 
     // Quick action buttons
+    const forceEnabledCheckbox = document.getElementById('dev-force-enabled');
+    const updateForceButtons = () => {
+      const enabled = forceEnabledCheckbox.checked;
+      document.getElementById('dev-force-perfect').disabled = !enabled;
+      document.getElementById('dev-force-good').disabled = !enabled;
+      document.getElementById('dev-force-miss').disabled = !enabled;
+      document.querySelectorAll('.dev-tile-btn').forEach(btn => btn.disabled = !enabled);
+    };
+    forceEnabledCheckbox.addEventListener('change', updateForceButtons);
+    updateForceButtons(); // Initial state
+
     document.getElementById('dev-force-perfect')?.addEventListener('click', () => this.forceJudgement('Perfect'));
     document.getElementById('dev-force-good')?.addEventListener('click', () => this.forceJudgement('Good'));
     document.getElementById('dev-force-miss')?.addEventListener('click', () => this.forceJudgement('Miss'));
-    document.getElementById('dev-reset-game')?.addEventListener('click', () => this.resetGame());
+    document.getElementById('dev-reset-game')?.addEventListener('click', () => window.location.reload());
     document.getElementById('dev-add-score')?.addEventListener('click', () => this.addScore(1000));
+  }
+
+  updatePatternConfig(pos, value) {
+    this.patternConfig[pos] = value;
+  }
+
+  clearPatternConfig() {
+    this.patternConfig.fill(0);
+    // Update the selects to reflect the cleared config
+    for (let i = 0; i < 10; i++) {
+      const select = document.querySelector(`.dev-pattern-select[data-pos="${i}"]`);
+      if (select) select.value = '0';
+    }
+  }
+
+  getConfiguredPattern() {
+    return this.patternConfig.slice(); // Return a copy
+  }
+
+  formatActivationSequence() {
+    return this.activationSequence.map((code) => this.displayActivationKey(code)).join(' ');
+  }
+
+  displayActivationKey(code) {
+    if (code === 'ArrowUp') return '↑';
+    if (code === 'ArrowDown') return '↓';
+    if (code === 'ArrowLeft') return '←';
+    if (code === 'ArrowRight') return '→';
+    if (code.startsWith('Key')) return code.slice(3).toUpperCase();
+    if (code.startsWith('Digit')) return code.slice(5);
+    if (code === 'Minus') return '-';
+    if (code === 'Period') return '.';
+    return code;
+  }
+
+  updateActivationInstructions() {
+    const sequenceEl = document.getElementById('dev-activation-sequence');
+    if (sequenceEl) {
+      sequenceEl.textContent = `Sequence: ${this.formatActivationSequence()} to activate`;
+    }
   }
 
   togglePanel() {
@@ -148,28 +209,9 @@ export class DeveloperControls {
     }
   }
 
-  selectTile(tileNumber) {
-    this.selectedTile = parseInt(tileNumber);
-    document.getElementById('dev-selected-tile').textContent = `Tile ${this.selectedTile}`;
-
-    // Highlight selected button
-    document.querySelectorAll('.dev-tile-btn').forEach((btn) => {
-      if (btn.dataset.tile === tileNumber) {
-        btn.style.border = '3px solid #ff0000';
-      } else {
-        btn.style.border = 'none';
-      }
-    });
-
-    // Force this tile in the game if devForceTile method exists
-    if (this.gameInstance && typeof this.gameInstance.devForceTile === 'function') {
-      this.gameInstance.devForceTile(this.selectedTile);
-    }
-
-    console.log(`%c📍 Tile ${tileNumber} forced`, 'color: #ff0000; font-size: 12px;');
-  }
-
   forceJudgement(judgement) {
+    const enabled = document.getElementById('dev-force-enabled')?.checked;
+    if (!enabled) return;
     // Force a judgement by calling the game instance method
     if (!this.gameInstance) {
       console.log('%c❌ No game instance', 'color: #ff4444; font-size: 12px;');
@@ -203,12 +245,21 @@ export class DeveloperControls {
 
   setGameInstance(instance) {
     this.gameInstance = instance;
+    if (!instance) {
+      // Disable force buttons when no game instance
+      const forceEnabledCheckbox = document.getElementById('dev-force-enabled');
+      if (forceEnabledCheckbox) {
+        forceEnabledCheckbox.checked = false;
+        forceEnabledCheckbox.dispatchEvent(new Event('change'));
+      }
+    }
   }
 
   setActivationSequence(sequence) {
     if (Array.isArray(sequence) && sequence.length > 0) {
       this.activationSequence = this.normalizeActivationSequence(sequence);
       this.konamiIndex = 0;
+      this.updateActivationInstructions();
     }
   }
 
@@ -217,8 +268,8 @@ export class DeveloperControls {
   }
 
   normalizeActivationKey(item) {
-    const key = item.toString();
-    const normalized = key.trim();
+    const key = item.toString().trim();
+    const upper = key.toUpperCase();
     const map = {
       'ARROWUP': 'ArrowUp',
       'ARROWDOWN': 'ArrowDown',
@@ -237,9 +288,12 @@ export class DeveloperControls {
       'KEY8': 'Digit8',
       'KEY9': 'Digit9'
     };
-    const upper = normalized.toUpperCase();
     if (map[upper]) return map[upper];
-    return normalized;
+    if (/^[A-Z]$/.test(upper)) return `Key${upper}`;
+    if (/^[0-9]$/.test(upper)) return `Digit${upper}`;
+    if (upper === '-') return 'Minus';
+    if (upper === '.') return 'Period';
+    return key;
   }
 }
 

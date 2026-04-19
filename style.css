@@ -207,13 +207,61 @@ th {
 }
 
 /* tutorial gif bottom-right under die */
-.demo.gif {
-  position: left;
-  left: 12px;
+.demo-gif {
+  position: fixed;
+  right: 12px;
   bottom: 12px;
   width: 160px;
   height: auto;
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.6);
   z-index: 30;
+  cursor: pointer;
+}
+
+#easter-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.98);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20000;
+}
+
+#easter-overlay .easter-content {
+  position: relative;
+  width: min(90vw, 960px);
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#easter-overlay img {
+  width: 100%;
+  height: auto;
+  max-height: 90vh;
+  border-radius: 16px;
+  box-shadow: 0 0 40px rgba(255,255,255,0.15);
+}
+
+#easter-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255,255,255,0.14);
+  border: none;
+  color: #fff;
+  font-size: 30px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+#easter-close:hover {
+  background: rgba(255,255,255,0.24);
 }

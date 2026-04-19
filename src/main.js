@@ -6,15 +6,16 @@ import startPatternMemory from './modes/patternmemory.js';
 import { initDevControls } from './developerControls.js';
 
 const STORAGE_USERS = 'rtr-users-v1';
-const DEFAULT_KEYBINDS = { A: 'A', S: 'S', D: 'D', F: 'F' };
+const STORAGE_KEYBINDS = 'rtr-keybinds-v1';
+const DEFAULT_KEYBINDS = { A: 'KeyA', S: 'KeyS', D: 'KeyD', F: 'KeyF' };
 const DEFAULT_DIFFICULTY = 'noob';
 const difficultyPresets = {
-  noob: { bpm: 30, perfect: 1.05, good: 1.12, leadTime: 1.8, patternStart: 4, patternBeats: 6, patternIncrease: false },
-  ez: { bpm: 60, perfect: 1.045, good: 1.1, leadTime: 1.7, patternStart: 4, patternBeats: 6, patternIncrease: false },
-  veteran: { bpm: 100, perfect: 0.05, good: 0.12, leadTime: 0.8, patternStart: 4, patternBeats: 8, patternIncrease: true },
-  experienced: { bpm: 120, perfect: 0.035, good: 0.075, leadTime: 0.6, patternStart: 4, patternBeats: 8, patternIncrease: true },
-  expert: { bpm: 140, perfect: 0.02, good: 0.05, leadTime: 0.5, patternStart: 5, patternBeats: 10, patternIncrease: true },
-  pro: { bpm: 160, perfect: 0.015, good: 0.03, leadTime: 0.4, patternStart: 6, patternBeats: 12, patternIncrease: true }
+  noob: { bpm: 40, perfect: 1.05, good: 1.12, leadTime: 1.8, patternStart: 4, patternBeats: 6, patternIncrease: false },
+  ez: { bpm: 80, perfect: 1.045, good: 1.1, leadTime: 1.7, patternStart: 4, patternBeats: 6, patternIncrease: false },
+  veteran: { bpm: 130, perfect: 0.05, good: 0.12, leadTime: 0.8, patternStart: 4, patternBeats: 8, patternIncrease: true },
+  experienced: { bpm: 150, perfect: 0.035, good: 0.075, leadTime: 0.6, patternStart: 4, patternBeats: 8, patternIncrease: true },
+  expert: { bpm: 170, perfect: 0.02, good: 0.05, leadTime: 0.5, patternStart: 5, patternBeats: 10, patternIncrease: true },
+  pro: { bpm: 190, perfect: 0.015, good: 0.03, leadTime: 0.4, patternStart: 6, patternBeats: 12, patternIncrease: true }
 };
 
 const canvas = document.getElementById('game-canvas');
@@ -39,12 +40,20 @@ const bindInputs = {
   F: document.getElementById('bind-f')
 };
 const profileInfo = document.getElementById('profile-info');
+const demoGif = document.getElementById('demo-gif');
 
 const modeButtons = {
   beat: document.getElementById('btn-beat'),
   key: document.getElementById('btn-key'),
   pattern: document.getElementById('btn-pattern')
 };
+
+let easterHoverActive = false;
+let easterSequenceIndex = 0;
+const easterSequence = ['KeyT', 'KeyW', 'KeyO', 'KeyF', 'KeyO', 'KeyR', 'KeyT'];
+let easterOverlay = null;
+let easterAudioCtx = null;
+
 
 let audioScheduler = null;
 let gameInstance = null;
@@ -113,6 +122,14 @@ function getStoredUsers() {
 
 function setStoredUsers(users) {
   localStorage.setItem(STORAGE_USERS, JSON.stringify(users));
+}
+
+function getStoredKeybinds() {
+  return JSON.parse(localStorage.getItem(STORAGE_KEYBINDS) || 'null') || null;
+}
+
+function setStoredKeybinds(keybinds) {
+  localStorage.setItem(STORAGE_KEYBINDS, JSON.stringify(keybinds));
 }
 
 function validateUsername(username) {
@@ -208,7 +225,6 @@ function showDetailedStats() {
       <option value="accuracy">Accuracy</option>
       <option value="precision">Precision</option>
       <option value="combo">Combo</option>
-      <option value="perfects">Perfects</option>
     </select>
     <select id="order-select">
       <option value="desc">High to Low</option>
@@ -293,9 +309,31 @@ function toggleSettingsModal() {
   }
 }
 
+function normalizeKeybindInput(value) {
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+  if (/^[A-Z]$/.test(upper)) return `Key${upper}`;
+  if (/^[0-9]$/.test(upper)) return `Digit${upper}`;
+  if (upper === '-') return 'Minus';
+  if (upper === '.') return 'Period';
+  if (/^ARROW(UP|DOWN|LEFT|RIGHT)$/.test(upper)) {
+    return `Arrow${upper.slice(5)}`;
+  }
+  return trimmed;
+}
+
+function displayKeybindLabel(code) {
+  if (!code) return '';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code === 'Minus') return '-';
+  if (code === 'Period') return '.';
+  return code;
+}
+
 function loadKeybindInputs() {
   Object.keys(bindInputs).forEach((label) => {
-    bindInputs[label].value = currentKeybinds[label] || DEFAULT_KEYBINDS[label];
+    bindInputs[label].value = displayKeybindLabel(currentKeybinds[label] || DEFAULT_KEYBINDS[label]);
   });
 }
 
@@ -396,7 +434,7 @@ async function signupUser() {
   currentProgress = { bestScore: 0, totalPlays: 0, modeStats: {} };
   users[username] = {
     passwordHash,
-    keybinds: { ...DEFAULT_KEYBINDS },
+    keybinds: { ...currentKeybinds },
     progress: encryptText(JSON.stringify(currentProgress), passwordHash)
   };
   setStoredUsers(users);
@@ -451,6 +489,7 @@ function stopGame() {
   if (audioScheduler) {
     audioScheduler.stopScheduler && audioScheduler.stopScheduler();
   }
+  devControls.setGameInstance(null);
   isGameRunning = false;
   Object.values(modeButtons).forEach((btn) => {
     btn.style.pointerEvents = 'auto';
@@ -477,9 +516,10 @@ loginCancelBtn.addEventListener('click', () => { toggleLoginModal(); });
 
 saveSettingsBtn.addEventListener('click', () => {
   Object.keys(bindInputs).forEach((label) => {
-    const value = bindInputs[label].value.trim().toUpperCase();
-    currentKeybinds[label] = value.length ? value : DEFAULT_KEYBINDS[label];
+    const value = bindInputs[label].value.trim();
+    currentKeybinds[label] = value.length ? normalizeKeybindInput(value) : DEFAULT_KEYBINDS[label];
   });
+  setStoredKeybinds(currentKeybinds);
   saveUserData();
   showMessage('Keybinds saved.');
 });
@@ -498,7 +538,7 @@ logoutBtn.addEventListener('click', () => {
   currentUser = null;
   currentPasswordHash = null;
   currentProgress = { bestScore: 0, totalPlays: 0, modeStats: {} };
-  currentKeybinds = { ...DEFAULT_KEYBINDS };
+  currentKeybinds = getStoredKeybinds() || { ...DEFAULT_KEYBINDS };
   updateHeaderControls();
   updateProfileInfo();
   toggleSettingsModal();
@@ -564,12 +604,101 @@ window.addEventListener('keydown', (e) => {
     loginModal.hidden = true;
     settingsModal.hidden = true;
     signupModal.hidden = true;
+    closeEasterOverlay();
   }
   if (e.code === 'Backspace' && isGameRunning) {
     e.preventDefault();
     stopGame();
   }
+
+  if (easterHoverActive && !easterOverlay) {
+    if (e.code === easterSequence[easterSequenceIndex]) {
+      easterSequenceIndex += 1;
+      if (easterSequenceIndex === easterSequence.length) {
+        easterSequenceIndex = 0;
+        showEasterEgg();
+      }
+    } else {
+      easterSequenceIndex = e.code === easterSequence[0] ? 1 : 0;
+    }
+  }
 });
+
+if (demoGif) {
+  demoGif.addEventListener('mouseenter', () => {
+    easterHoverActive = true;
+    easterSequenceIndex = 0;
+  });
+  demoGif.addEventListener('mouseleave', () => {
+    easterHoverActive = false;
+    easterSequenceIndex = 0;
+  });
+}
+
+function showEasterEgg() {
+  if (easterOverlay) return;
+
+  easterOverlay = document.createElement('div');
+  easterOverlay.id = 'easter-overlay';
+  easterOverlay.innerHTML = `
+    <div class="easter-content">
+      <button id="easter-close" aria-label="Close easter egg">×</button>
+      <img id="easter-media" src="docs/easter.gif" alt="Easter egg surprise" />
+    </div>
+  `;
+
+  document.body.appendChild(easterOverlay);
+  document.getElementById('easter-close')?.addEventListener('click', closeEasterOverlay);
+  easterOverlay.addEventListener('click', (event) => {
+    if (event.target === easterOverlay) {
+      closeEasterOverlay();
+    }
+  });
+
+  const easterMedia = document.getElementById('easter-media');
+  if (easterMedia) {
+    easterMedia.addEventListener('error', () => {
+      easterMedia.src = 'docs/demo.gif';
+    });
+  }
+
+  playEasterAudio();
+}
+
+function closeEasterOverlay() {
+  if (!easterOverlay) return;
+  easterOverlay.remove();
+  easterOverlay = null;
+  stopEasterAudio();
+}
+
+function playEasterAudio() {
+  if (easterAudioCtx) {
+    stopEasterAudio();
+  }
+
+  easterAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const gain = easterAudioCtx.createGain();
+  gain.gain.setValueAtTime(0.18, easterAudioCtx.currentTime);
+  gain.connect(easterAudioCtx.destination);
+
+  const melody = [440, 494, 523, 587, 659, 587, 523, 494];
+  melody.forEach((freq, index) => {
+    const osc = easterAudioCtx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, easterAudioCtx.currentTime + index * 0.18);
+    osc.connect(gain);
+    osc.start(easterAudioCtx.currentTime + index * 0.18);
+    osc.stop(easterAudioCtx.currentTime + index * 0.18 + 0.16);
+  });
+}
+
+function stopEasterAudio() {
+  if (!easterAudioCtx) return;
+  easterAudioCtx.close();
+  easterAudioCtx = null;
+}
+
 
 startBtn.addEventListener('click', async () => {
   if (isGameRunning) return;
@@ -618,18 +747,24 @@ switch (selectedMode) {
     });
     break;
   case 'pattern':
+    const customPattern = devControls.isActive ? devControls.getConfiguredPattern() : null;
     gameInstance = startPatternMemory({
       canvas,
       audioScheduler,
       onUpdateHUD: updateHUD,
       difficulty: difficultyWithLevel,
-      onGameEnd: stopGame
+      onGameEnd: stopGame,
+      customPattern
     });
     break;
 }
 
   // start the game instance
   if (gameInstance && typeof gameInstance.start === 'function') {
+    // Set AudioScheduler BPM to match difficulty
+    if (audioScheduler && typeof audioScheduler.setBPM === 'function') {
+      audioScheduler.setBPM(difficultyWithLevel.bpm);
+    }
     devControls.setGameInstance(gameInstance);
     gameInstance.start();
   }
@@ -649,7 +784,15 @@ function updateHUD({ score, combo, lastJudgement, accuracy, precision }) {
   // Final progress is saved when the game stops (stopGame).
 }
 
+function loadStoredKeybinds() {
+  const binds = getStoredKeybinds();
+  if (binds && typeof binds === 'object') {
+    currentKeybinds = { ...DEFAULT_KEYBINDS, ...binds };
+  }
+}
+
 function initialiseUI() {
+  loadStoredKeybinds();
   updateHeaderControls();
   updateProfileInfo();
 }

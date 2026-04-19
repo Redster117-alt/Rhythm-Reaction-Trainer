@@ -43,9 +43,9 @@ export class AudioSchedulerPM {
         { frequency: 440, duration: 0.08, delayFromStart: 0 },
         { frequency: 440, duration: 0.08, delayFromStart: 0.20 },
         { frequency: 440, duration: 0.08, delayFromStart: 0.40 },
-        { frequency: 440, duration: 0.08, delayFromStart: 0.50 },
-        { frequency: 440, duration: 0.08, delayFromStart: 0.70 },
-        { frequency: 440, duration: 0.08, delayFromStart: 0.80 }
+        { frequency: 440, duration: 0.08, delayFromStart: 0.53 },
+        { frequency: 440, duration: 0.08, delayFromStart: 0.73 },
+        { frequency: 440, duration: 0.08, delayFromStart: 0.86 }
       ],
       7: [ // Pi7: Long pattern with multiple notes
         { frequency: 440, duration: 0.08, delayFromStart: 0 },
