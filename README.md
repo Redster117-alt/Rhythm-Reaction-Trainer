@@ -1,7 +1,7 @@
 # Rhythm-Reaction-Trainer
 
 ## How to run (local)
-1. Create a copy of the Rhythym Reaction Trainer.
+1. Create a copy of the Rhythm Reaction Trainer.
 2. Open terminal and type the commands in order:
     - npm install -g serve
     - npm fund (Optional)
