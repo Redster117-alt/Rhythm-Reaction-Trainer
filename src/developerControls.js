@@ -7,7 +7,7 @@ export class DeveloperControls {
     this.activationSequence = this.normalizeActivationSequence(
       activationSequence || [
         'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight',
-        'KeyF', 'KeyU', 'KeyC', 'KeyK', 'Minus', 'KeyN', 'KeyI', 'KeyG', 'KeyG', 'KeyA', 'KeyS', 'Digit6', 'Period', 'Digit0'
+        'KeyR', 'KeyR', 'KeyT', 'Minus', 'Digit6', 'Period', 'Digit0'
       ]
     );
     this.konamiIndex = 0;
