@@ -20,6 +20,8 @@ const difficultyPresets = {
 
 const canvas = document.getElementById('game-canvas');
 const startBtn = document.getElementById('start-btn');
+const stopBtn = document.getElementById('stop-btn');
+const modeDescription = document.getElementById('mode-description');
 const loginBtn = document.getElementById('login-btn');
 const signupBtn = document.getElementById('signup-btn');
 const settingsBtn = document.getElementById('settings-btn');
@@ -39,6 +41,9 @@ const bindInputs = {
   D: document.getElementById('bind-d'),
   F: document.getElementById('bind-f')
 };
+const resetKeybindsBtn = document.getElementById('reset-keybinds-btn');
+const soundEffectsToggle = document.getElementById('sound-effects-toggle');
+const bgMusicToggle = document.getElementById('bg-music-toggle');
 const profileInfo = document.getElementById('profile-info');
 const demoGif = document.getElementById('demo-gif');
 
@@ -70,6 +75,9 @@ let currentPasswordHash = null;
 let currentKeybinds = { ...DEFAULT_KEYBINDS };
 let currentProgress = { bestScore: 0, totalPlays: 0, modeStats: {} };
 let statsDisplayed = false;
+let soundEffectsEnabled = true;
+let backgroundMusicEnabled = false;
+let bgMusicAudio = null;
 
 const signupModal = document.getElementById('signup-modal');
 const signupUsernameInput = document.getElementById('signup-username');
@@ -159,6 +167,74 @@ function updateProfileInfo() {
     profileInfo.textContent = 'Playing as guest. Log in to save progress.';
   } else {
     profileInfo.textContent = `Logged in as ${currentUser}. Press Backspace to stop.`;
+  }
+}
+
+const MODE_DESCRIPTIONS = {
+  beat: 'Beat-click mode tests your timing. Click when the cue hits the center target circle.',
+  key: 'Key-press mode trains reflexes with falling notes and customizable keybinds.',
+  pattern: 'Pattern memory mode shows a sequence of colors or tiles, then asks you to reproduce it.'
+};
+
+function updateModeDescription() {
+  if (!modeDescription) return;
+  modeDescription.textContent = MODE_DESCRIPTIONS[selectedMode] || 'Select a mode to see how it plays.';
+}
+
+function updateRunControls() {
+  startBtn.disabled = isGameRunning;
+  stopBtn.disabled = !isGameRunning;
+}
+
+function setSoundEffectsEnabled(enabled) {
+  soundEffectsEnabled = enabled;
+  if (audioScheduler && typeof audioScheduler.setSoundEnabled === 'function') {
+    audioScheduler.setSoundEnabled(enabled);
+  }
+}
+
+let bgMusicAudioCtx = null;
+let bgMusicOsc = null;
+let bgMusicGain = null;
+
+function startBackgroundMusic() {
+  if (!backgroundMusicEnabled || bgMusicAudioCtx) return;
+  bgMusicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  bgMusicGain = bgMusicAudioCtx.createGain();
+  bgMusicGain.gain.value = 0.04;
+  bgMusicOsc = bgMusicAudioCtx.createOscillator();
+  bgMusicOsc.type = 'triangle';
+  bgMusicOsc.frequency.setValueAtTime(110, bgMusicAudioCtx.currentTime);
+  const lfo = bgMusicAudioCtx.createOscillator();
+  const lfoGain = bgMusicAudioCtx.createGain();
+  lfo.frequency.value = 0.25;
+  lfoGain.gain.value = 30;
+  lfo.connect(lfoGain);
+  lfoGain.connect(bgMusicOsc.frequency);
+  bgMusicOsc.connect(bgMusicGain).connect(bgMusicAudioCtx.destination);
+  bgMusicOsc.start();
+  lfo.start();
+  bgMusicAudioCtx.onstatechange = () => {
+    if (bgMusicAudioCtx && bgMusicAudioCtx.state === 'suspended') {
+      bgMusicAudioCtx.resume();
+    }
+  };
+}
+
+function stopBackgroundMusic() {
+  backgroundMusicEnabled = false;
+  if (bgMusicOsc) {
+    bgMusicOsc.stop();
+    bgMusicOsc.disconnect();
+    bgMusicOsc = null;
+  }
+  if (bgMusicGain) {
+    bgMusicGain.disconnect();
+    bgMusicGain = null;
+  }
+  if (bgMusicAudioCtx) {
+    bgMusicAudioCtx.close().catch(() => {});
+    bgMusicAudioCtx = null;
   }
 }
 
@@ -310,6 +386,8 @@ function toggleSettingsModal() {
     loginModal.hidden = true;
     signupModal.hidden = true;
     loadKeybindInputs();
+    soundEffectsToggle.checked = soundEffectsEnabled;
+    bgMusicToggle.checked = backgroundMusicEnabled;
     accountPanel.hidden = !currentUser;
   }
 }
@@ -571,6 +649,7 @@ function stopGame() {
   }
   devControls.setGameInstance(null);
   isGameRunning = false;
+  updateRunControls();
   Object.values(modeButtons).forEach((btn) => {
     btn.style.pointerEvents = 'auto';
     btn.style.opacity = '1';
@@ -586,6 +665,7 @@ Object.keys(modeButtons).forEach((mode) => {
     Object.values(modeButtons).forEach((btn) => btn.classList.remove('active'));
     modeButtons[mode].classList.add('active');
     selectedMode = mode;
+    updateModeDescription();
   });
 });
 
@@ -599,12 +679,20 @@ saveSettingsBtn.addEventListener('click', () => {
     const value = bindInputs[label].value.trim();
     currentKeybinds[label] = value.length ? normalizeKeybindInput(value) : DEFAULT_KEYBINDS[label];
   });
+  soundEffectsEnabled = soundEffectsToggle.checked;
+  backgroundMusicEnabled = bgMusicToggle.checked;
+  setSoundEffectsEnabled(soundEffectsEnabled);
+  if (backgroundMusicEnabled) {
+    startBackgroundMusic();
+  } else {
+    stopBackgroundMusic();
+  }
   setStoredKeybinds(currentKeybinds);
   saveUserData();
   demoGifUnlockReady = isDemoGifActivationSequence();
   if (demoGifUnlockReady) {
-    } else {
-    showMessage('Keybinds saved.');
+  } else {
+    showMessage('Settings saved.');
   }
 });
 
@@ -617,6 +705,8 @@ cancelSettingsBtn.addEventListener('click', () => {
   if (currentUser) {
     loadKeybindInputs();
   }
+  soundEffectsToggle.checked = soundEffectsEnabled;
+  bgMusicToggle.checked = backgroundMusicEnabled;
   toggleSettingsModal();
 });
 
@@ -671,6 +761,31 @@ resetPatternBtn.addEventListener('click', () => {
   updateProfileInfo();
   showMessage('Pattern mode stats reset.');
 });
+
+resetKeybindsBtn.addEventListener('click', () => {
+  currentKeybinds = { ...DEFAULT_KEYBINDS };
+  loadKeybindInputs();
+  setStoredKeybinds(currentKeybinds);
+  showMessage('Keybinds reset to default.');
+});
+
+soundEffectsToggle.addEventListener('change', () => {
+  setSoundEffectsEnabled(soundEffectsToggle.checked);
+  showMessage(soundEffectsToggle.checked ? 'Sound effects enabled.' : 'Sound effects disabled.');
+});
+
+bgMusicToggle.addEventListener('change', () => {
+  backgroundMusicEnabled = bgMusicToggle.checked;
+  if (backgroundMusicEnabled) {
+    startBackgroundMusic();
+    showMessage('Background music enabled.');
+  } else {
+    stopBackgroundMusic();
+    showMessage('Background music disabled.');
+  }
+});
+
+stopBtn.addEventListener('click', () => stopGame());
 
 deleteAccountBtn.addEventListener('click', () => {
   if (!confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
@@ -828,6 +943,7 @@ startBtn.addEventListener('click', async () => {
 
   if (selectedMode !== 'pattern') {
     audioScheduler = new AudioScheduler();
+    audioScheduler.setSoundEnabled(soundEffectsEnabled);
     if (selectedMode === 'key') {
       audioScheduler.setSoundProfile('keypress');
     } else {
@@ -844,7 +960,8 @@ switch (selectedMode) {
     gameInstance = startBeatClick(audioScheduler, canvas, {
       onUpdateHUD: updateHUD,
       difficulty: difficultyWithLevel,
-      onGameEnd: stopGame
+      onGameEnd: stopGame,
+      soundEnabled: soundEffectsEnabled
     });
     break;
   case 'key':
@@ -854,7 +971,8 @@ switch (selectedMode) {
       onUpdateHUD: updateHUD,
       difficulty: difficultyWithLevel,
       keybinds: currentKeybinds,
-      onGameEnd: stopGame
+      onGameEnd: stopGame,
+      soundEnabled: soundEffectsEnabled
     });
     break;
   case 'pattern':
@@ -878,6 +996,8 @@ switch (selectedMode) {
     }
     devControls.setGameInstance(gameInstance);
     gameInstance.start();
+    isGameRunning = true;
+    updateRunControls();
   }
 });
 
@@ -906,6 +1026,8 @@ function initialiseUI() {
   loadStoredKeybinds();
   updateHeaderControls();
   updateProfileInfo();
+  updateModeDescription();
+  updateRunControls();
   hideDemoGif();
 }
 

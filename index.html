@@ -33,10 +33,14 @@
           <option value="expert">Expert</option>
           <option value="pro">Pro</option>
         </select>
-        <button id="start-btn">Start</button>
+        <div class="run-controls">
+          <button id="start-btn">Start</button>
+          <button id="stop-btn" disabled>Stop</button>
+        </div>
       </div>
     </section>
 
+    <div id="mode-description" class="mode-description">Select a mode to see how it plays.</div>
     <div id="profile-info" aria-live="polite"></div>
 
     <div id="game-container">
@@ -93,6 +97,12 @@
             <label for="bind-f">F</label>
             <input id="bind-f" maxlength="5" placeholder="F" />
           </div>
+          <button id="reset-keybinds-btn" type="button">Reset Keybinds to Default</button>
+        </div>
+        <div id="sound-panel">
+          <h3>Audio</h3>
+          <label><input type="checkbox" id="sound-effects-toggle" checked /> Sound Effects</label>
+          <label><input type="checkbox" id="bg-music-toggle" /> Background Music</label>
         </div>
         <div id="account-panel" hidden>
           <h3>Account Options</h3>

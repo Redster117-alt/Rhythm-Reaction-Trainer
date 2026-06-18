@@ -7,6 +7,7 @@ export class AudioScheduler {
     this.interval = 60 / this.bpm;
     this.secondsPerBeat = 60 / this.bpm;
     this.soundProfile = soundProfile;
+    this.soundEnabled = true;
     this.isRunning = false;
     this._lookahead = 0.1; // seconds
     this._scheduleAheadTime = 0.5; // seconds
@@ -56,11 +57,17 @@ export class AudioScheduler {
     this.soundProfile = profile;
   }
 
+  setSoundEnabled(enabled) {
+    this.soundEnabled = enabled;
+  }
+
   _emitBeat(time) {
-    if (this.soundProfile === 'keypress') {
-      playKeyPressBeat(this.audioCtx, time);
-    } else {
-      this._playDefaultBeat(time);
+    if (this.soundEnabled) {
+      if (this.soundProfile === 'keypress') {
+        playKeyPressBeat(this.audioCtx, time);
+      } else {
+        this._playDefaultBeat(time);
+      }
     }
     // notify listeners with scheduled time
     this._callbacks.forEach(cb => cb(time));

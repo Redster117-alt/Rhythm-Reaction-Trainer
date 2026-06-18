@@ -1,4 +1,4 @@
-export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}, onGameEnd } = {}) {
+export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}, onGameEnd, soundEnabled = true } = {}) {
   const ctx = canvas.getContext('2d');
   const cues = [];
   let score = 0;
@@ -14,16 +14,16 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
   let pendingScoreAdd = 0;
   let mouseHandler = null;
   let consecutiveMissCount = 0;
-  const maxConsecutiveMisses = ['veteran', 'experienced', 'expert', 'pro']
+  const maxConsecutiveMisses = 4;
 
   const difficultyMode = difficulty.level || 'noob';
   const timingPresets = {
-    noob: { perfect: 0.25, good: 0.5, leadTime: 1.5 },
-    ez: { perfect: 0.2, good: 0.4, leadTime: 1.3 },
-    veteran: { perfect: 0.08, good: 0.15, leadTime: 0.8 },
-    experienced: { perfect: 0.06, good: 0.12, leadTime: 0.7 },
-    expert: { perfect: 0.04, good: 0.08, leadTime: 0.6 },
-    pro: { perfect: 0.03, good: 0.06, leadTime: 0.5 }
+    noob: { perfect: 0.1, good: 0.2, leadTime: 1.5 },
+    ez: { perfect: 0.08, good: 0.16, leadTime: 1.3 },
+    veteran: { perfect: 0.05, good: 0.1, leadTime: 0.8 },
+    experienced: { perfect: 0.035, good: 0.08, leadTime: 0.7 },
+    expert: { perfect: 0.025, good: 0.05, leadTime: 0.6 },
+    pro: { perfect: 0.018, good: 0.035, leadTime: 0.5 }
   };
 
   const settings = timingPresets[difficultyMode] || timingPresets.noob;

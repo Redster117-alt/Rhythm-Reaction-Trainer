@@ -237,10 +237,10 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
 
     spawnPattern(patternData);
 
-    // Schedule audio beats directly at cue beat times
-    if (audioScheduler && audioScheduler.audioCtx && audioScheduler.audioCtx.state !== 'closed') {
+    // Schedule audio beats directly at cue beat times when sound is enabled.
+    const audioAllowed = soundEnabled && audioScheduler && audioScheduler.audioCtx && audioScheduler.audioCtx.state !== 'closed' && (typeof audioScheduler.soundEnabled === 'undefined' || audioScheduler.soundEnabled);
+    if (audioAllowed) {
       patternData.forEach((cue) => {
-        // Calculate the audio context time when the cue should play
         const timeUntilBeat = cue.beatTime - safeNow();
         const audioScheduleTime = audioScheduler.audioCtx.currentTime + timeUntilBeat;
         playKeyPressBeat(audioScheduler.audioCtx, audioScheduleTime);
