@@ -1,7 +1,7 @@
 // src/modes/keypress.js
 import { playKeyPressBeat } from '../audioKeyPress.js';
 
-export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onGameEnd, difficulty = {}, keybinds = {}, pattern = null, debug = false, keyboardOnly = true } = {}) {
+export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onGameEnd, difficulty = {}, keybinds = {}, pattern = null, debug = false, keyboardOnly = true, soundEnabled = true } = {}) {
   const ctx = canvas.getContext('2d');
   let rafId = null;
   let cues = [];
@@ -14,6 +14,7 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
   let totalOffset = 0;
   let gameEnded = false;
   let forcedJudgement = null;
+  let forcedPersistent = false;
   let pendingScoreAdd = 0;
 
   const leadTime = typeof difficulty.leadTime === 'number' ? difficulty.leadTime : 0.6;
@@ -101,6 +102,13 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     }
   }
 
+  function endRunAfterMiss() {
+    if (gameEnded) return;
+    gameEnded = true;
+    stop();
+    if (typeof onGameEnd === 'function') onGameEnd();
+  }
+
   function handleInput(eventTime, keyCode) {
     if (gameEnded) return;
     let nearest = null;
@@ -127,6 +135,7 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
       totalJudgements += 1;
       totalOffset += maxWindow;
       updateHUD();
+      endRunAfterMiss();
       return;
     }
 
@@ -150,7 +159,9 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
       } else {
         combo = 0;
       }
-      forcedJudgement = null;
+      if (!forcedPersistent) {
+        forcedJudgement = null;
+      }
     } else {
       judgement = getJudgementForDiff(diffSigned);
       lastJudgement = judgement.label;
@@ -165,6 +176,11 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
       } else {
         combo = 0;
       }
+    }
+
+    if (lastJudgement === 'Miss') {
+      endRunAfterMiss();
+      return;
     }
 
     if (pendingScoreAdd) {
@@ -206,6 +222,7 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
       totalJudgements += 1;
       totalOffset += maxWindow;
       updateHUD();
+      endRunAfterMiss();
       return;
     }
     handleInput(nowPtr, nearest.code);
@@ -222,11 +239,12 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     totalOffset = 0;
     gameEnded = false;
     forcedJudgement = null;
+    forcedPersistent = false;
     pendingScoreAdd = 0;
     cues = [];
 
     const now = safeNow();
-    const startAt = now + 0.5;
+    const startAt = now + Math.max(leadTime, 0.35);
     const patternData = pattern
       ? pattern.map((offset, index) => {
           const label = availableLabels[index % availableLabels.length];
@@ -275,6 +293,8 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     const w = canvas.width;
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0b0c0e';
+    ctx.fillRect(0, 0, w, h);
     const now = safeNow();
 
     ctx.fillStyle = '#e6eef6';
@@ -282,6 +302,16 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     ctx.fillText('Key-Press Rhythm Trainer', 105, 24);
     ctx.font = '14px system-ui';
     ctx.fillText('Press the key shown inside the circle when it reaches the bottom.', 205, 46);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      const x = w * (i + 0.5) / 4;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
 
     const targetY = h * 0.9;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
@@ -309,6 +339,8 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
           totalJudgements += 1;
           totalOffset += Math.abs(now - cue.beatTime);
           updateHUD();
+          endRunAfterMiss();
+          return;
         }
         cues.splice(i, 1);
         continue;
@@ -354,12 +386,14 @@ export default function startKeyPress({ canvas, audioScheduler, onUpdateHUD, onG
     };
   }
 
-  function devInjectJudgementFunc(judgement) {
+  function devInjectJudgementFunc(judgement, options = {}) {
     forcedJudgement = judgement;
+    forcedPersistent = Boolean(options.persistent);
   }
 
   function devAddScoreFunc(amount) {
-    pendingScoreAdd += amount;
+    score += amount;
+    updateHUD();
   }
 
   function reset() {

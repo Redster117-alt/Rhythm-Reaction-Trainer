@@ -1,7 +1,7 @@
 // src/modes/patternmemory.js
 import { AudioSchedulerPM } from '../audioPatternMemory.js';
 
-export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false, customPattern = null } = {}) {
+export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD, difficulty = {}, onGameEnd, debug = false, customPattern = null, showGuide = true } = {}) {
   const ctx = canvas.getContext('2d');
 
   const COLOURS = [
@@ -48,6 +48,7 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   let requiredClicks = 1;
   let hasPlayerInput = false;
   let devInjectJudgement = null;
+  let devInjectPersistent = false;
   let devAddScore = 0;
   let inputTimeout = null;
 
@@ -119,6 +120,40 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(LABELS[currentTile - 1], w / 2 + w / 4, h / 2);
+    }
+
+    if (showGuide && currentTile) {
+      const guideW = Math.max(180, w / 2 - 40);
+      const guideH = 48;
+      const guideX = w / 2 + 18;
+      const guideY = 110;
+      const patternDelays = pmAudioScheduler.getBeatPattern(currentTile);
+      const maxDelay = Math.max(...patternDelays, 1);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+      ctx.fillRect(guideX, guideY, guideW, guideH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(guideX + 8, guideY + guideH / 2);
+      ctx.lineTo(guideX + guideW - 8, guideY + guideH / 2);
+      ctx.stroke();
+      patternDelays.forEach((delay, index) => {
+        const px = guideX + 8 + (delay / maxDelay) * (guideW - 16);
+        ctx.strokeStyle = index % 2 ? '#7dd3fc' : '#fca5a5';
+        ctx.beginPath();
+        ctx.moveTo(px, guideY + 8);
+        ctx.lineTo(px, guideY + guideH - 8);
+        ctx.stroke();
+      });
+      const dotProgress = Math.min((now - currentTileFlashTime) / (leadTime + showDuration), 1);
+      const dotX = guideX + 8 + dotProgress * (guideW - 16);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(dotX, guideY + guideH / 2, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e6eef6';
+      ctx.font = '12px system-ui';
+      ctx.fillText('Guide: beat markers and moving dot', guideX + 8, guideY - 6);
     }
 
     // HUD info
@@ -209,7 +244,9 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     let judgement = 'Miss';
     if (devInjectJudgement) {
       judgement = devInjectJudgement;
-      devInjectJudgement = null;
+      if (!devInjectPersistent) {
+        devInjectJudgement = null;
+      }
     } else if (clickCount === requiredClicks && userPresses.length === requiredClicks) {
       const tolerance = getTimingTolerance();
       let allPerfect = true;
@@ -430,8 +467,9 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
     console.log(`%c🔧 Dev: Forced tile to ${tile}`, 'color: #ff0000;');
   }
 
-  function devInjectJudgementFunc(judgement) {
+  function devInjectJudgementFunc(judgement, options = {}) {
     devInjectJudgement = judgement;
+    devInjectPersistent = Boolean(options.persistent);
     console.log(`%c🔧 Dev: Injected judgement ${judgement}`, 'color: #ff0000;');
     if (state === 'input' && !hasPlayerInput) {
       evaluateRound();
@@ -439,7 +477,8 @@ export default function startPatternMemory({ canvas, audioScheduler, onUpdateHUD
   }
 
   function devAddScoreFunc(amount) {
-    devAddScore += amount;
+    score += Number(amount) || 0;
+    onUpdateHUDSafe();
     console.log(`%c🔧 Dev: Added ${amount} score`, 'color: #ff0000;');
   }
 

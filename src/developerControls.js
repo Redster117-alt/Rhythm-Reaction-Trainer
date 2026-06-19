@@ -14,6 +14,10 @@ export class DeveloperControls {
     this.panel = null;
     this.gameInstance = null;
     this.patternConfig = Array(10).fill(0); // 0 means none
+    this.isActive = localStorage.getItem('rtr-dev-console-open') === '1';
+    this.forceMode = localStorage.getItem('rtr-dev-force-mode') || null;
+    this.afkTimer = null;
+    this.afkMode = localStorage.getItem('rtr-dev-afk-mode') === '1';
 
     this.init();
   }
@@ -24,6 +28,9 @@ export class DeveloperControls {
 
     // Create the developer panel (hidden initially)
     this.createPanel();
+    if (this.isActive) {
+      this.panel.style.display = 'block';
+    }
   }
 
   handleKonamiCode(e) {
@@ -99,6 +106,9 @@ export class DeveloperControls {
         <label style="display: block; margin-bottom: 4px; font-size: 11px;">
           <input type="checkbox" id="dev-force-enabled" checked> Enable Force Buttons
         </label>
+        <label style="display: block; margin-bottom: 4px; font-size: 11px;">
+          <input type="checkbox" id="dev-afk-mode" ${this.afkMode ? 'checked' : ''}> AFK Force Mode
+        </label>
         <button id="dev-force-perfect" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #00ff00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Perfect</button>
         <button id="dev-force-good" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #00cc00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Good</button>
         <button id="dev-force-miss" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #ff4444; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Force Miss</button>
@@ -107,7 +117,9 @@ export class DeveloperControls {
       <div style="margin-bottom: 12px;">
         <label style="display: block; margin-bottom: 4px;">Game Controls:</label>
         <button id="dev-reset-game" style="width: 100%; padding: 6px; margin-bottom: 4px; background: #ffaa00; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Refresh Page</button>
-        <button id="dev-add-score" style="width: 100%; padding: 6px; background: #00ffff; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Add 1000 Score</button>
+        <label style="display: block; margin-bottom: 4px; font-size: 11px;">Score injection amount:</label>
+        <input id="dev-score-amount" type="number" min="0" step="100" value="1000" style="width: 100%; padding: 6px; margin-bottom: 4px; border-radius: 4px; border: 1px solid #ff0000; background: #071226; color: #fff; box-sizing: border-box;" />
+        <button id="dev-add-score" style="width: 100%; padding: 6px; background: #00ffff; color: #071226; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Inject Score</button>
       </div>
 
       <div style="border-top: 1px solid #ff0000; padding-top: 8px;">
@@ -155,8 +167,18 @@ export class DeveloperControls {
     document.getElementById('dev-force-perfect')?.addEventListener('click', () => this.forceJudgement('Perfect'));
     document.getElementById('dev-force-good')?.addEventListener('click', () => this.forceJudgement('Good'));
     document.getElementById('dev-force-miss')?.addEventListener('click', () => this.forceJudgement('Miss'));
-    document.getElementById('dev-reset-game')?.addEventListener('click', () => window.location.reload());
-    document.getElementById('dev-add-score')?.addEventListener('click', () => this.addScore(1000));
+    document.getElementById('dev-reset-game')?.addEventListener('click', () => {
+      localStorage.setItem('rtr-dev-console-open', '1');
+      window.location.reload();
+    });
+    document.getElementById('dev-afk-mode')?.addEventListener('change', (e) => this.setAFKMode(Boolean(e.target.checked)));
+    document.getElementById('dev-add-score')?.addEventListener('click', () => this.addScore(this.getInjectionAmount()));
+    document.getElementById('dev-score-amount')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.addScore(this.getInjectionAmount());
+      }
+    });
   }
 
   updatePatternConfig(pos, value) {
@@ -174,6 +196,12 @@ export class DeveloperControls {
 
   getConfiguredPattern() {
     return this.patternConfig.slice(); // Return a copy
+  }
+
+  getInjectionAmount() {
+    const input = document.getElementById('dev-score-amount');
+    const parsed = Number.parseInt(input?.value ?? '1000', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000;
   }
 
   formatActivationSequence() {
@@ -203,6 +231,8 @@ export class DeveloperControls {
     this.isActive = !this.isActive;
     if (this.panel) {
       this.panel.style.display = this.isActive ? 'block' : 'none';
+      this.updateForceButtonStyles();
+      localStorage.setItem('rtr-dev-console-open', this.isActive ? '1' : '0');
       if (this.isActive) {
         console.log('%c🔧 DEV PANEL ACTIVE', 'color: #ff0000; font-size: 14px; font-weight: bold;');
       }
@@ -212,17 +242,49 @@ export class DeveloperControls {
   forceJudgement(judgement) {
     const enabled = document.getElementById('dev-force-enabled')?.checked;
     if (!enabled) return;
-    // Force a judgement by calling the game instance method
     if (!this.gameInstance) {
       console.log('%c❌ No game instance', 'color: #ff4444; font-size: 12px;');
       return;
     }
 
+    this.forceMode = judgement;
+    localStorage.setItem('rtr-dev-force-mode', judgement);
+    this.updateForceButtonStyles();
+
     if (typeof this.gameInstance.devInjectJudgementFunc === 'function') {
-      this.gameInstance.devInjectJudgementFunc(judgement);
+      this.gameInstance.devInjectJudgementFunc(judgement, { persistent: true });
     }
-    
+
     console.log(`%c💫 Forced ${judgement}`, 'color: #ffff00; font-size: 12px;');
+  }
+
+  updateForceButtonStyles() {
+    const modes = ['Perfect', 'Good', 'Miss'];
+    modes.forEach((mode) => {
+      const button = document.getElementById(`dev-force-${mode.toLowerCase()}`);
+      if (!button) return;
+      const active = this.forceMode === mode;
+      button.style.outline = active ? '2px solid #fff' : 'none';
+      button.style.boxShadow = active ? '0 0 0 2px rgba(255,255,255,0.25)' : 'none';
+    });
+  }
+
+  setAFKMode(enabled) {
+    this.afkMode = Boolean(enabled);
+    localStorage.setItem('rtr-dev-afk-mode', this.afkMode ? '1' : '0');
+    if (this.afkTimer) {
+      clearInterval(this.afkTimer);
+      this.afkTimer = null;
+    }
+    if (!this.afkMode) return;
+    if (!this.gameInstance || typeof this.gameInstance.devInjectJudgementFunc !== 'function') return;
+
+    this.afkTimer = setInterval(() => {
+      if (!this.gameInstance || typeof this.gameInstance.devInjectJudgementFunc !== 'function') return;
+      const options = this.forceMode ? [this.forceMode] : ['Perfect', 'Good', 'Miss'];
+      const next = options[Math.floor(Math.random() * options.length)];
+      this.gameInstance.devInjectJudgementFunc(next, { persistent: true });
+    }, 600);
   }
 
   resetGame() {
@@ -235,9 +297,10 @@ export class DeveloperControls {
   }
 
   addScore(amount) {
+    const safeAmount = Number.isFinite(Number(amount)) ? Math.max(0, Number(amount)) : 1000;
     if (this.gameInstance && typeof this.gameInstance.devAddScoreFunc === 'function') {
-      this.gameInstance.devAddScoreFunc(amount);
-      console.log(`%c➕ Added ${amount} score`, 'color: #00ff00; font-size: 12px;');
+      this.gameInstance.devAddScoreFunc(safeAmount);
+      console.log(`%c➕ Added ${safeAmount} score`, 'color: #00ff00; font-size: 12px;');
     } else {
       console.log('%c❌ Cannot add score', 'color: #ff4444; font-size: 12px;');
     }
@@ -245,7 +308,19 @@ export class DeveloperControls {
 
   setGameInstance(instance) {
     this.gameInstance = instance;
+    this.updateForceButtonStyles();
+
+    if (instance && this.forceMode) {
+      this.gameInstance.devInjectJudgementFunc?.(this.forceMode, { persistent: true });
+    }
+    if (instance && this.afkMode) {
+      this.setAFKMode(true);
+    }
     if (!instance) {
+      if (this.afkTimer) {
+        clearInterval(this.afkTimer);
+        this.afkTimer = null;
+      }
       // Disable force buttons when no game instance
       const forceEnabledCheckbox = document.getElementById('dev-force-enabled');
       if (forceEnabledCheckbox) {

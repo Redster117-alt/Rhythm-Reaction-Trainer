@@ -7,15 +7,16 @@ import { initDevControls } from './developerControls.js';
 
 const STORAGE_USERS = 'rtr-users-v1';
 const STORAGE_KEYBINDS = 'rtr-keybinds-v1';
+const STORAGE_AUDIO_SETTINGS = 'rtr-audio-settings-v1';
 const DEFAULT_KEYBINDS = { A: 'KeyA', S: 'KeyS', D: 'KeyD', F: 'KeyF' };
 const DEFAULT_DIFFICULTY = 'noob';
 const difficultyPresets = {
-  noob: { bpm: 40, perfect: 1.05, good: 1.12, leadTime: 1.8, patternStart: 4, patternBeats: 6, patternIncrease: false },
-  ez: { bpm: 80, perfect: 1.045, good: 1.1, leadTime: 1.7, patternStart: 4, patternBeats: 6, patternIncrease: false },
-  veteran: { bpm: 130, perfect: 0.05, good: 0.12, leadTime: 0.8, patternStart: 4, patternBeats: 8, patternIncrease: true },
-  experienced: { bpm: 150, perfect: 0.035, good: 0.075, leadTime: 0.6, patternStart: 4, patternBeats: 8, patternIncrease: true },
-  expert: { bpm: 170, perfect: 0.02, good: 0.05, leadTime: 0.5, patternStart: 5, patternBeats: 10, patternIncrease: true },
-  pro: { bpm: 190, perfect: 0.015, good: 0.03, leadTime: 0.4, patternStart: 6, patternBeats: 12, patternIncrease: true }
+  noob: { bpm: 40, perfect: 0.18, good: 0.30, leadTime: 1.0, patternStart: 4, patternBeats: 6, patternIncrease: false },
+  ez: { bpm: 80, perfect: 0.14, good: 0.24, leadTime: 0.85, patternStart: 4, patternBeats: 6, patternIncrease: false },
+  veteran: { bpm: 130, perfect: 0.09, good: 0.18, leadTime: 0.65, patternStart: 4, patternBeats: 8, patternIncrease: true },
+  experienced: { bpm: 150, perfect: 0.07, good: 0.15, leadTime: 0.55, patternStart: 4, patternBeats: 8, patternIncrease: true },
+  expert: { bpm: 170, perfect: 0.05, good: 0.10, leadTime: 0.45, patternStart: 5, patternBeats: 10, patternIncrease: true },
+  pro: { bpm: 190, perfect: 0.04, good: 0.08, leadTime: 0.35, patternStart: 6, patternBeats: 12, patternIncrease: true }
 };
 
 const canvas = document.getElementById('game-canvas');
@@ -43,7 +44,10 @@ const bindInputs = {
 };
 const resetKeybindsBtn = document.getElementById('reset-keybinds-btn');
 const soundEffectsToggle = document.getElementById('sound-effects-toggle');
+const soundEffectsUrlInput = document.getElementById('sound-effects-url');
 const bgMusicToggle = document.getElementById('bg-music-toggle');
+const bgMusicUrlInput = document.getElementById('bg-music-url');
+const patternGuideToggle = document.getElementById('pattern-guide-toggle');
 const profileInfo = document.getElementById('profile-info');
 const demoGif = document.getElementById('demo-gif');
 
@@ -77,7 +81,11 @@ let currentProgress = { bestScore: 0, totalPlays: 0, modeStats: {} };
 let statsDisplayed = false;
 let soundEffectsEnabled = true;
 let backgroundMusicEnabled = false;
+let customSoundEffectUrl = '';
+let customBackgroundMusicUrl = '';
+let patternGuideEnabled = true;
 let bgMusicAudio = null;
+let bgMusicPausedForGame = false;
 
 const signupModal = document.getElementById('signup-modal');
 const signupUsernameInput = document.getElementById('signup-username');
@@ -145,6 +153,18 @@ function setStoredKeybinds(keybinds) {
   localStorage.setItem(STORAGE_KEYBINDS, JSON.stringify(keybinds));
 }
 
+function getStoredAudioSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_AUDIO_SETTINGS) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function setStoredAudioSettings(settings) {
+  localStorage.setItem(STORAGE_AUDIO_SETTINGS, JSON.stringify(settings));
+}
+
 function validateUsername(username) {
   return /^[a-zA-Z0-9_-]{3,16}$/.test(username);
 }
@@ -193,12 +213,39 @@ function setSoundEffectsEnabled(enabled) {
   }
 }
 
+async function applyCustomSoundEffect() {
+  if (!audioScheduler) return;
+  if (!customSoundEffectUrl) {
+    audioScheduler.setCustomSoundUrl('');
+    return;
+  }
+  try {
+    await audioScheduler.loadCustomSound(customSoundEffectUrl);
+  } catch (error) {
+    console.warn('Failed to load custom sound effect', error);
+  }
+}
+
 let bgMusicAudioCtx = null;
 let bgMusicOsc = null;
 let bgMusicGain = null;
 
 function startBackgroundMusic() {
-  if (!backgroundMusicEnabled || bgMusicAudioCtx) return;
+  if (!backgroundMusicEnabled) return;
+
+  if (customBackgroundMusicUrl) {
+    if (!bgMusicAudio) {
+      bgMusicAudio = new Audio(customBackgroundMusicUrl);
+      bgMusicAudio.loop = true;
+      bgMusicAudio.volume = 0.18;
+    } else if (bgMusicAudio.src !== new URL(customBackgroundMusicUrl, window.location.href).href) {
+      bgMusicAudio.src = customBackgroundMusicUrl;
+    }
+    bgMusicAudio.play().catch(() => {});
+    return;
+  }
+
+  if (bgMusicAudioCtx) return;
   bgMusicAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
   bgMusicGain = bgMusicAudioCtx.createGain();
   bgMusicGain.gain.value = 0.04;
@@ -216,13 +263,42 @@ function startBackgroundMusic() {
   lfo.start();
   bgMusicAudioCtx.onstatechange = () => {
     if (bgMusicAudioCtx && bgMusicAudioCtx.state === 'suspended') {
-      bgMusicAudioCtx.resume();
+      bgMusicAudioCtx.resume().catch(() => {});
     }
   };
 }
 
+function pauseBackgroundMusic() {
+  if (bgMusicAudio && !bgMusicAudio.paused) {
+    bgMusicAudio.pause();
+    bgMusicPausedForGame = true;
+    return;
+  }
+  if (bgMusicAudioCtx && bgMusicAudioCtx.state === 'running') {
+    bgMusicAudioCtx.suspend().catch(() => {});
+    bgMusicPausedForGame = true;
+  }
+}
+
+function resumeBackgroundMusic() {
+  if (!backgroundMusicEnabled) return;
+  if (bgMusicPausedForGame) {
+    if (bgMusicAudio) {
+      bgMusicAudio.play().catch(() => {});
+    } else if (bgMusicAudioCtx) {
+      bgMusicAudioCtx.resume().catch(() => {});
+    }
+    bgMusicPausedForGame = false;
+  }
+}
+
 function stopBackgroundMusic() {
   backgroundMusicEnabled = false;
+  if (bgMusicAudio) {
+    bgMusicAudio.pause();
+    bgMusicAudio.currentTime = 0;
+    bgMusicAudio = null;
+  }
   if (bgMusicOsc) {
     bgMusicOsc.stop();
     bgMusicOsc.disconnect();
@@ -387,7 +463,10 @@ function toggleSettingsModal() {
     signupModal.hidden = true;
     loadKeybindInputs();
     soundEffectsToggle.checked = soundEffectsEnabled;
+    soundEffectsUrlInput.value = customSoundEffectUrl;
     bgMusicToggle.checked = backgroundMusicEnabled;
+    bgMusicUrlInput.value = customBackgroundMusicUrl;
+    patternGuideToggle.checked = patternGuideEnabled;
     accountPanel.hidden = !currentUser;
   }
 }
@@ -466,7 +545,7 @@ function showDemoGifIfUnlocked() {
       console.log('0.5s delay done, switching to demo.gif');
       const tempImage = document.getElementById('temp-demo-image');
       if (tempImage) {
-        tempImage.src = 'docs/demo.gif';
+        tempImage.src = 'docs/kazotsky-kick-demoman.gif';
       }
 
       // Delay kahbeewm start so it ends when demo.gif ends (demo.gif: 2.67s, kahbeewm: 1.23s)
@@ -496,15 +575,25 @@ function hideDemoGif() {
 }
 
 function saveUserData() {
-  if (!currentUser || !currentPasswordHash) return;
+  if (!currentUser || !currentPasswordHash) {
+    saveAudioSettings();
+    return;
+  }
   const users = getStoredUsers();
   const encryptedProgress = encryptText(JSON.stringify(currentProgress), currentPasswordHash);
   users[currentUser] = {
     passwordHash: currentPasswordHash,
     keybinds: currentKeybinds,
-    progress: encryptedProgress
+    progress: encryptedProgress,
+    audioSettings: {
+      soundEffectsEnabled,
+      backgroundMusicEnabled,
+      customSoundEffectUrl,
+      customBackgroundMusicUrl
+    }
   };
   setStoredUsers(users);
+  saveAudioSettings();
 }
 
 function saveProgress(score, accuracy, combo, perfects, precision) {
@@ -556,6 +645,11 @@ async function loginUser() {
     const decrypted = decryptText(users[username].progress, passwordHash);
     currentProgress = decrypted ? JSON.parse(decrypted) : { bestScore: 0, totalPlays: 0, modeStats: {} };
     currentKeybinds = users[username].keybinds || { ...DEFAULT_KEYBINDS };
+    const savedAudio = users[username].audioSettings || {};
+    soundEffectsEnabled = typeof savedAudio.soundEffectsEnabled === 'boolean' ? savedAudio.soundEffectsEnabled : soundEffectsEnabled;
+    backgroundMusicEnabled = typeof savedAudio.backgroundMusicEnabled === 'boolean' ? savedAudio.backgroundMusicEnabled : backgroundMusicEnabled;
+    customSoundEffectUrl = savedAudio.customSoundEffectUrl || customSoundEffectUrl;
+    customBackgroundMusicUrl = savedAudio.customBackgroundMusicUrl || customBackgroundMusicUrl;
     showMessage(`Welcome back, ${username}.`);
   }
   currentUser = username;
@@ -593,7 +687,13 @@ async function signupUser() {
   users[username] = {
     passwordHash,
     keybinds: { ...currentKeybinds },
-    progress: encryptText(JSON.stringify(currentProgress), passwordHash)
+    progress: encryptText(JSON.stringify(currentProgress), passwordHash),
+    audioSettings: {
+      soundEffectsEnabled,
+      backgroundMusicEnabled,
+      customSoundEffectUrl,
+      customBackgroundMusicUrl
+    }
   };
   setStoredUsers(users);
   currentUser = username;
@@ -647,6 +747,9 @@ function stopGame() {
   if (audioScheduler) {
     audioScheduler.stopScheduler && audioScheduler.stopScheduler();
   }
+  if (backgroundMusicEnabled) {
+    resumeBackgroundMusic();
+  }
   devControls.setGameInstance(null);
   isGameRunning = false;
   updateRunControls();
@@ -680,14 +783,21 @@ saveSettingsBtn.addEventListener('click', () => {
     currentKeybinds[label] = value.length ? normalizeKeybindInput(value) : DEFAULT_KEYBINDS[label];
   });
   soundEffectsEnabled = soundEffectsToggle.checked;
+  customSoundEffectUrl = soundEffectsUrlInput.value.trim();
   backgroundMusicEnabled = bgMusicToggle.checked;
+  customBackgroundMusicUrl = bgMusicUrlInput.value.trim();
+  patternGuideEnabled = patternGuideToggle.checked;
   setSoundEffectsEnabled(soundEffectsEnabled);
+  if (customSoundEffectUrl) {
+    applyCustomSoundEffect();
+  }
   if (backgroundMusicEnabled) {
     startBackgroundMusic();
   } else {
     stopBackgroundMusic();
   }
   setStoredKeybinds(currentKeybinds);
+  saveAudioSettings();
   saveUserData();
   demoGifUnlockReady = isDemoGifActivationSequence();
   if (demoGifUnlockReady) {
@@ -706,7 +816,9 @@ cancelSettingsBtn.addEventListener('click', () => {
     loadKeybindInputs();
   }
   soundEffectsToggle.checked = soundEffectsEnabled;
+  soundEffectsUrlInput.value = customSoundEffectUrl;
   bgMusicToggle.checked = backgroundMusicEnabled;
+  bgMusicUrlInput.value = customBackgroundMusicUrl;
   toggleSettingsModal();
 });
 
@@ -774,6 +886,12 @@ soundEffectsToggle.addEventListener('change', () => {
   showMessage(soundEffectsToggle.checked ? 'Sound effects enabled.' : 'Sound effects disabled.');
 });
 
+soundEffectsUrlInput?.addEventListener('change', async () => {
+  customSoundEffectUrl = soundEffectsUrlInput.value.trim();
+  await applyCustomSoundEffect();
+  showMessage(customSoundEffectUrl ? 'Custom sound effect URL updated.' : 'Custom sound effect cleared.');
+});
+
 bgMusicToggle.addEventListener('change', () => {
   backgroundMusicEnabled = bgMusicToggle.checked;
   if (backgroundMusicEnabled) {
@@ -783,6 +901,16 @@ bgMusicToggle.addEventListener('change', () => {
     stopBackgroundMusic();
     showMessage('Background music disabled.');
   }
+});
+
+bgMusicUrlInput?.addEventListener('change', () => {
+  customBackgroundMusicUrl = bgMusicUrlInput.value.trim();
+  showMessage(customBackgroundMusicUrl ? 'Custom music URL updated.' : 'Custom music URL cleared.');
+});
+
+patternGuideToggle?.addEventListener('change', () => {
+  patternGuideEnabled = patternGuideToggle.checked;
+  showMessage(patternGuideEnabled ? 'Pattern guide enabled.' : 'Pattern guide disabled.');
 });
 
 stopBtn.addEventListener('click', () => stopGame());
@@ -884,7 +1012,7 @@ function showSpinningHeavyOverlay() {
   const spinningHeavyMedia = document.getElementById('spinning-heavy-media');
   if (spinningHeavyMedia) {
     spinningHeavyMedia.addEventListener('error', () => {
-      spinningHeavyMedia.src = 'docs/demo.gif';
+      spinningHeavyMedia.src = 'docs/kazotsky-kick-demoman.gif';
     });
   }
 
@@ -928,6 +1056,9 @@ function stopSpinningHeavyAudio() {
 
 startBtn.addEventListener('click', async () => {
   if (isGameRunning) return;
+  if (backgroundMusicEnabled) {
+    pauseBackgroundMusic();
+  }
   
   isGameRunning = true;
   Object.values(modeButtons).forEach((btn) => {
@@ -951,6 +1082,7 @@ startBtn.addEventListener('click', async () => {
     }
     audioScheduler.setBPM(difficulty.bpm);
     await audioScheduler.init();
+    await applyCustomSoundEffect();
   } else {
     audioScheduler = null; // Pattern mode uses its own audio
   }
@@ -983,7 +1115,8 @@ switch (selectedMode) {
       onUpdateHUD: updateHUD,
       difficulty: difficultyWithLevel,
       onGameEnd: stopGame,
-      customPattern
+      customPattern,
+      showGuide: patternGuideEnabled
     });
     break;
 }
@@ -1022,13 +1155,34 @@ function loadStoredKeybinds() {
   }
 }
 
+function loadAudioSettings() {
+  const settings = getStoredAudioSettings();
+  soundEffectsEnabled = typeof settings.soundEffectsEnabled === 'boolean' ? settings.soundEffectsEnabled : true;
+  backgroundMusicEnabled = typeof settings.backgroundMusicEnabled === 'boolean' ? settings.backgroundMusicEnabled : false;
+  customSoundEffectUrl = settings.customSoundEffectUrl || '';
+  customBackgroundMusicUrl = settings.customBackgroundMusicUrl || '';
+}
+
+function saveAudioSettings() {
+  setStoredAudioSettings({
+    soundEffectsEnabled,
+    backgroundMusicEnabled,
+    customSoundEffectUrl,
+    customBackgroundMusicUrl
+  });
+}
+
 function initialiseUI() {
   loadStoredKeybinds();
+  loadAudioSettings();
   updateHeaderControls();
   updateProfileInfo();
   updateModeDescription();
   updateRunControls();
   hideDemoGif();
+  if (backgroundMusicEnabled) {
+    startBackgroundMusic();
+  }
 }
 
 initialiseUI();

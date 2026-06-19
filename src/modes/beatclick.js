@@ -11,10 +11,10 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
   let missCount = 0;
   let totalOffset = 0;
   let forcedJudgement = null;
+  let forcedPersistent = false;
   let pendingScoreAdd = 0;
   let mouseHandler = null;
-  let consecutiveMissCount = 0;
-  const maxConsecutiveMisses = 4;
+  let gameEnded = false;
 
   const difficultyMode = difficulty.level || 'noob';
   const timingPresets = {
@@ -27,8 +27,11 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
   };
 
   const settings = timingPresets[difficultyMode] || timingPresets.noob;
-  const timingWindows = { perfect: settings.perfect, good: settings.good };
-  const leadTime = settings.leadTime;
+  const timingWindows = {
+    perfect: typeof difficulty.perfect === 'number' ? difficulty.perfect : settings.perfect,
+    good: typeof difficulty.good === 'number' ? difficulty.good : settings.good
+  };
+  const leadTime = typeof difficulty.leadTime === 'number' ? difficulty.leadTime : settings.leadTime;
   const cueRadius = 100;
   const cueLifetime = 0.5; // seconds to keep cue visible after beat
 
@@ -40,6 +43,13 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
   scheduler.onBeat((beatTime) => {
     scheduleCue(beatTime);
   });
+
+  function endRunAfterMiss() {
+    if (gameEnded) return;
+    gameEnded = true;
+    stop();
+    if (typeof onGameEnd === 'function') onGameEnd();
+  }
 
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -105,14 +115,6 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         totalJudgements += 1;
         missCount += 1;
         totalOffset += timeSinceBeat;
-        consecutiveMissCount += 1;
-        if (consecutiveMissCount >= maxConsecutiveMisses) {
-          // End game due to too many consecutive misses
-          setTimeout(() => {
-            stop();
-            if (onGameEnd) onGameEnd();
-          }, 500);
-        }
         onUpdateHUD({
           score,
           combo,
@@ -120,6 +122,8 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
           accuracy: Math.round(((perfectCount + goodCount) / totalJudgements) * 100),
           precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
         });
+        endRunAfterMiss();
+        return;
       }
     }
     rafId = requestAnimationFrame(render);
@@ -153,18 +157,10 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         }
       }
       if (!nearest) {
-        // No cue within timing window - it's a miss
         lastJudgement = 'Miss';
         combo = 0;
         totalJudgements += 1;
         missCount += 1;
-        consecutiveMissCount += 1;
-        if (consecutiveMissCount >= maxConsecutiveMisses) {
-          setTimeout(() => {
-            stop();
-            if (onGameEnd) onGameEnd();
-          }, 500);
-        }
         onUpdateHUD({
           score,
           combo,
@@ -172,13 +168,13 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
           accuracy: Math.round(((perfectCount + goodCount) / totalJudgements) * 100),
           precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
         });
+        endRunAfterMiss();
         return;
       }
       nearest.hit = true;
       totalJudgements += 1;
       const diff = bestDiff;
       totalOffset += diff;
-      consecutiveMissCount = 0; // Reset on hit
 
       if (forcedJudgement) {
         lastJudgement = forcedJudgement;
@@ -194,7 +190,13 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
           combo = 0;
           missCount += 1;
         }
-        forcedJudgement = null;
+        if (!forcedPersistent) {
+          forcedJudgement = null;
+        }
+        if (lastJudgement === 'Miss') {
+          endRunAfterMiss();
+          return;
+        }
       } else if (diff <= timingWindows.perfect) {
         score += 300;
         combo += 1;
@@ -209,6 +211,11 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
         combo = 0;
         lastJudgement = 'Miss';
         missCount += 1;
+      }
+
+      if (lastJudgement === 'Miss') {
+        endRunAfterMiss();
+        return;
       }
 
       if (pendingScoreAdd) {
@@ -254,12 +261,20 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
     };
   }
 
-  function devInjectJudgementFunc(judgement) {
+  function devInjectJudgementFunc(judgement, options = {}) {
     forcedJudgement = judgement;
+    forcedPersistent = Boolean(options.persistent);
   }
 
   function devAddScoreFunc(amount) {
-    pendingScoreAdd += amount;
+    score += amount;
+    onUpdateHUD({
+      score,
+      combo,
+      lastJudgement,
+      accuracy: Math.round(((perfectCount + goodCount) / Math.max(totalJudgements, 1)) * 100),
+      precision: totalJudgements ? Math.round((totalOffset / totalJudgements) * 1000) : 0
+    });
   }
 
   function reset() {
@@ -274,8 +289,9 @@ export function startBeatClick(scheduler, canvas, { onUpdateHUD, difficulty = {}
     totalOffset = 0;
     cues.length = 0;
     forcedJudgement = null;
+    forcedPersistent = false;
     pendingScoreAdd = 0;
-    consecutiveMissCount = 0;
+    gameEnded = false;
     start();
   }
 
