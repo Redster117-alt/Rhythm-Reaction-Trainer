@@ -81,7 +81,7 @@ let currentProgress = { bestScore: 0, totalPlays: 0, modeStats: {} };
 let statsDisplayed = false;
 let backgroundMusicEnabled = false;
 let customBackgroundMusicUrl = '';
-let customBackgroundMusicBlob = null;
+let customBackgroundMusicDataUrl = '';
 let backgroundMusicLoop = true;
 let patternGuideEnabled = true;
 let bgMusicAudio = null;
@@ -213,13 +213,13 @@ let bgMusicGain = null;
 function startBackgroundMusic() {
   if (!backgroundMusicEnabled) return;
 
-  if (customBackgroundMusicBlob) {
+  if (customBackgroundMusicDataUrl) {
     if (!bgMusicAudio) {
-      bgMusicAudio = new Audio(customBackgroundMusicBlob);
+      bgMusicAudio = new Audio(customBackgroundMusicDataUrl);
       bgMusicAudio.loop = backgroundMusicLoop;
       bgMusicAudio.volume = 0.18;
-    } else if (bgMusicAudio.src !== customBackgroundMusicBlob) {
-      bgMusicAudio.src = customBackgroundMusicBlob;
+    } else if (bgMusicAudio.src !== customBackgroundMusicDataUrl) {
+      bgMusicAudio.src = customBackgroundMusicDataUrl;
       bgMusicAudio.loop = backgroundMusicLoop;
     }
     bgMusicAudio.play().catch(() => {});
@@ -598,7 +598,9 @@ function saveUserData() {
     audioSettings: {
       backgroundMusicEnabled,
       customBackgroundMusicUrl,
-      backgroundMusicLoop
+      customBackgroundMusicDataUrl,
+      backgroundMusicLoop,
+      patternGuideEnabled
     }
   };
   setStoredUsers(users);
@@ -657,7 +659,9 @@ async function loginUser() {
     const savedAudio = users[username].audioSettings || {};
     backgroundMusicEnabled = typeof savedAudio.backgroundMusicEnabled === 'boolean' ? savedAudio.backgroundMusicEnabled : backgroundMusicEnabled;
     customBackgroundMusicUrl = savedAudio.customBackgroundMusicUrl || customBackgroundMusicUrl;
+    customBackgroundMusicDataUrl = savedAudio.customBackgroundMusicDataUrl || customBackgroundMusicDataUrl;
     backgroundMusicLoop = typeof savedAudio.backgroundMusicLoop === 'boolean' ? savedAudio.backgroundMusicLoop : true;
+    patternGuideEnabled = typeof savedAudio.patternGuideEnabled === 'boolean' ? savedAudio.patternGuideEnabled : patternGuideEnabled;
     showMessage(`Welcome back, ${username}.`);
   }
   currentUser = username;
@@ -865,7 +869,7 @@ bgMusicFileInput.addEventListener('change', (event) => {
   if (file) {
     const reader = new FileReader();
     reader.onload = (e) => {
-      customBackgroundMusicBlob = e.target.result;
+      customBackgroundMusicDataUrl = e.target.result;
       customBackgroundMusicUrl = file.name;
       showMessage(`Music file loaded: ${file.name}`);
       if (backgroundMusicEnabled) {
@@ -997,7 +1001,8 @@ function showSpinningHeavyOverlay() {
     z-index: 10000;
   `;
   spinningHeavyOverlay.innerHTML = `
-    <img id="spinning-heavy-media" src="docs/spinning-heavy.gif" alt="Spinning heavy surprise" style="max-width: 95%; max-height: 95%; object-fit: contain;height: 700px;" />
+    <button id="spinning-heavy-close" aria-label="Close" style="position:absolute;top:16px;right:16px;width:44px;height:44px;border:none;border-radius:50%;background:rgba(255,255,255,0.1);color:#fff;font-size:28px;cursor:pointer;">×</button>
+    <img id="spinning-heavy-media" src="docs/spinning-heavy.gif" alt="Spinning heavy surprise" style="max-width: 95%; max-height: 95%; object-fit: contain; height: 700px;" />
   `;
 
   document.body.appendChild(spinningHeavyOverlay);
@@ -1160,14 +1165,18 @@ function loadAudioSettings() {
   const settings = getStoredAudioSettings();
   backgroundMusicEnabled = typeof settings.backgroundMusicEnabled === 'boolean' ? settings.backgroundMusicEnabled : false;
   customBackgroundMusicUrl = settings.customBackgroundMusicUrl || '';
+  customBackgroundMusicDataUrl = settings.customBackgroundMusicDataUrl || '';
   backgroundMusicLoop = typeof settings.backgroundMusicLoop === 'boolean' ? settings.backgroundMusicLoop : true;
+  patternGuideEnabled = typeof settings.patternGuideEnabled === 'boolean' ? settings.patternGuideEnabled : true;
 }
 
 function saveAudioSettings() {
   setStoredAudioSettings({
     backgroundMusicEnabled,
     customBackgroundMusicUrl,
-    backgroundMusicLoop
+    customBackgroundMusicDataUrl,
+    backgroundMusicLoop,
+    patternGuideEnabled
   });
 }
 

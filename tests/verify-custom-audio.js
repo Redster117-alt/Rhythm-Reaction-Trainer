@@ -16,17 +16,15 @@ const { chromium } = require('playwright');
   await page.evaluate(() => {
     localStorage.clear();
     document.getElementById('settings-btn').click();
-    document.getElementById('sound-effects-toggle').checked = true;
-    document.getElementById('sound-effects-url').value = 'docs/thats-racist.mp3';
-    document.getElementById('bg-music-toggle').checked = true;
-    document.getElementById('bg-music-url').value = 'docs/kahbeeewm.mp3';
-    document.getElementById('save-settings-btn').click();
   });
 
+  await page.setInputFiles('#bg-music-file', 'docs/kahbeeewm.mp3');
+  await page.check('#bg-music-toggle');
+  await page.click('#save-settings-btn');
   await page.waitForTimeout(1000);
 
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('rtr-audio-settings-v1') || '{}'));
-  if (!saved.customSoundEffectUrl || !saved.customBackgroundMusicUrl) {
+  if (!saved.customBackgroundMusicDataUrl || !saved.customBackgroundMusicUrl) {
     throw new Error(`Audio settings were not persisted: ${JSON.stringify(saved)}`);
   }
 
